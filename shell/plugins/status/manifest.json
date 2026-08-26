@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "owlook.status",
+  "name": "Owlook",
+  "version": "0.1.0",
+  "author": "Rafael Peña-Azar",
+  "license": "MIT",
+  "description": "CI, deploy, and queue status for your Rails projects, in the bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Owlook",
+    "description": "CI, deploy, and queue status for your Rails projects",
+    "category": "Info",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
