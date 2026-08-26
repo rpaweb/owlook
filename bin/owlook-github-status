@@ -1,0 +1,27 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Manual verification for Hito 2: given a local project path, print the
+# latest GitHub Actions run (current branch) with its jobs and steps.
+#
+# Usage: bin/owlook-github-status <path-to-project>
+
+require_relative "../lib/owlook"
+require "json"
+
+path = ARGV[0] or abort "Usage: #{$PROGRAM_NAME} <path-to-project>"
+
+repo = Owlook::GitRepo.new(File.expand_path(path))
+owner, name = repo.owner_and_repo
+branch = repo.current_branch
+
+client = Owlook::GithubClient.new(token: Owlook::GithubClient.resolve_token)
+source = Owlook::Sources::GitHub.new(client: client)
+
+run = source.latest_run(owner: owner, repo: name, branch: branch)
+
+if run.nil?
+  puts "No workflow runs found for #{owner}/#{name}@#{branch}"
+else
+  puts JSON.pretty_generate(run)
+end
