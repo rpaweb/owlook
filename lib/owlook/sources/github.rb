@@ -24,6 +24,7 @@ module Owlook
           head_sha: run.fetch("head_sha"),
           html_url: run.fetch("html_url"),
           updated_at: run.fetch("updated_at"),
+          actor: run.dig("triggering_actor", "login") || run.dig("actor", "login"),
           jobs: jobs.map { |job| parse_job(job) }
         }
       end

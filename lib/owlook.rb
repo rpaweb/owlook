@@ -8,6 +8,7 @@ require_relative "owlook/sources/github"
 require_relative "owlook/observation"
 require_relative "owlook/store"
 require_relative "owlook/state_writer"
+require_relative "owlook/collector"
 
 module Owlook
 end

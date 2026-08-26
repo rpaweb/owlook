@@ -1,0 +1,34 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Renders systemd/owlook.service.erb with the real ruby interpreter path
+# (RbConfig.ruby — never a mise shim) and this checkout's absolute paths,
+# and installs it to ~/.config/systemd/user/owlook.service. Does not enable
+# or start it — that's a separate, explicit step:
+#
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now owlook
+
+require "erb"
+require "rbconfig"
+require "fileutils"
+
+ruby_path = RbConfig.ruby
+collector_path = File.expand_path("owlook-collector", __dir__)
+template_path = File.expand_path("../systemd/owlook.service.erb", __dir__)
+unit_dir = File.expand_path("~/.config/systemd/user")
+unit_path = File.join(unit_dir, "owlook.service")
+
+template = ERB.new(File.read(template_path))
+rendered = template.result_with_hash(ruby_path: ruby_path, collector_path: collector_path)
+
+FileUtils.mkdir_p(unit_dir)
+File.write(unit_path, rendered)
+
+puts "Wrote #{unit_path}"
+puts
+puts rendered
+puts
+puts "Not enabled yet. To start it:"
+puts "  systemctl --user daemon-reload"
+puts "  systemctl --user enable --now owlook"

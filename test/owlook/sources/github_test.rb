@@ -12,6 +12,7 @@ class Owlook::Sources::GitHubTest < Minitest::Test
         "head_branch" => "quattro",
         "head_sha" => "0ae1694830b6bd9511042fe1b89a0062d8c083cb",
         "html_url" => "https://github.com/acme/widgets/actions/runs/32993198471",
+        "triggering_actor" => { "login" => "rafael" },
         "run_started_at" => "2026-08-26T17:16:59Z",
         "updated_at" => "2026-08-26T17:19:54Z"
       }
@@ -49,6 +50,7 @@ class Owlook::Sources::GitHubTest < Minitest::Test
     assert_equal "0ae1694830b6bd9511042fe1b89a0062d8c083cb", run[:head_sha]
     assert_equal "https://github.com/acme/widgets/actions/runs/32993198471", run[:html_url]
     assert_equal "2026-08-26T17:19:54Z", run[:updated_at]
+    assert_equal "rafael", run[:actor]
 
     assert_equal 1, run[:jobs].size
     job = run[:jobs].first

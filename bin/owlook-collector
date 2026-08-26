@@ -1,0 +1,38 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# The collector: one long-lived process, all projects, all sources. This is
+# what the systemd --user unit runs.
+
+# Self-activates its own Gemfile so systemd can invoke this with a bare ruby
+# path (never a mise shim) and no `bundle exec` wrapper in ExecStart=.
+gemfile = File.expand_path("../Gemfile", __dir__)
+if File.exist?(gemfile)
+  ENV["BUNDLE_GEMFILE"] ||= gemfile
+  require "bundler/setup"
+end
+
+require_relative "../lib/owlook"
+
+CONFIG_PATH = File.expand_path(ENV.fetch("OWLOOK_CONFIG", "~/.config/owlook/config.yml"))
+STATE_PATH = File.join(ENV.fetch("XDG_RUNTIME_DIR", "/tmp"), "owlook.json")
+POLL_INTERVAL = Integer(ENV.fetch("OWLOOK_POLL_INTERVAL", "30"))
+
+def log(message)
+  warn "[owlook] #{Time.now.iso8601} #{message}"
+  $stderr.flush
+end
+
+config = Owlook::Config.load(CONFIG_PATH)
+client = Owlook::GithubClient.new(token: Owlook::GithubClient.resolve_token)
+
+collector = Owlook::Collector.new(
+  config: config,
+  store: Owlook::Store.new,
+  writer: Owlook::StateWriter.new(STATE_PATH),
+  github_source: Owlook::Sources::GitHub.new(client: client),
+  logger: method(:log)
+)
+
+log("starting: #{config.projects.size} project(s), polling every #{POLL_INTERVAL}s -> #{STATE_PATH}")
+collector.run(interval: POLL_INTERVAL)

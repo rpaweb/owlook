@@ -1,0 +1,13 @@
+[Unit]
+Description=Owlook collector (CI, deploy, and queue status for Omarchy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=<%= ruby_path %> <%= collector_path %>
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
