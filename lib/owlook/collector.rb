@@ -7,13 +7,10 @@ module Owlook
   # cycle. #run is the infinite loop the systemd unit calls; all the actual
   # logic lives in #poll_once so it can be tested without looping or sleeping.
   #
-  # NOTE — open design question, not resolved here: this maps a GitHub
-  # Actions run onto an Observation using the run's *branch* as the
-  # `destination`, not a real Kamal destination. v1 has no other source that
-  # reports a destination (Kamal hooks/SSH are explicitly out of scope), so
-  # there is nothing to correlate a run against yet. If/when a real
-  # per-destination source is added, this mapping needs revisiting — flagging
-  # explicitly rather than guessing a branch->destination convention.
+  # GitHub Actions produces "ci" observations, identified by project +
+  # branch (see Observation#key) — never a "deploy" observation, since
+  # nothing in v1 reports a real Kamal destination (hooks/SSH are out of
+  # scope). No destination is invented for it.
   class Collector
     def initialize(config:, store:, writer:, github_source:, logger: nil)
       @config = config
@@ -54,7 +51,9 @@ module Owlook
       log("#{owner}/#{name}@#{branch}: #{run[:conclusion] || run[:status]}")
       @store.record(Observation.new(
         project: "#{owner}/#{name}",
-        destination: branch,
+        kind: "ci",
+        branch: branch,
+        destination: nil,
         version: run[:head_sha],
         state: run[:conclusion] || run[:status],
         timestamp: Time.parse(run[:updated_at]),

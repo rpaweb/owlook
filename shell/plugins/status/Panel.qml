@@ -126,7 +126,7 @@ Panel {
 
               Text {
                 width: row.width
-                text: modelData.project + " · " + modelData.destination
+                text: modelData.project + " · " + Model.rowLocation(modelData)
                 color: root.barForeground
                 font.family: Style.font.family
                 font.pixelSize: Style.font.bodySmall

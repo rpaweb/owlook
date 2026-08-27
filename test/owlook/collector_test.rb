@@ -28,7 +28,9 @@ class Owlook::CollectorTest < Minitest::Test
         assert_equal 1, on_disk.size
         entry = on_disk.first
         assert_equal "acme/widgets", entry["project"]
-        assert_equal "main", entry["destination"]
+        assert_equal "ci", entry["kind"]
+        assert_equal "main", entry["branch"]
+        assert_nil entry["destination"]
         assert_equal "abc123", entry["version"]
         assert_equal "success", entry["state"]
         assert_equal "rafael", entry["author"]

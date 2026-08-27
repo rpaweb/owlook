@@ -11,9 +11,11 @@ module Owlook
     end
 
     # Returns true if this observation changed the stored state for its key,
-    # false if it was a no-op (older, equal, or duplicate).
+    # false if it was a no-op (older, equal, or duplicate). The key itself
+    # is the observation's business (see Observation#key) — a "ci" row and a
+    # "deploy" row for the same project never collide.
     def record(observation)
-      key = [observation.project, observation.destination]
+      key = observation.key
       current = @entries[key]
       return false if current && current.timestamp >= observation.timestamp
 

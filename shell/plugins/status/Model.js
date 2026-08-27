@@ -47,6 +47,14 @@ function stateLabel(state) {
   }
 }
 
+// A "ci" row is identified by branch, a "deploy" row by destination — they
+// are never both set (see Ruby's Owlook::Observation#key). Render whichever
+// one the row actually has instead of assuming destination.
+function rowLocation(entry) {
+  if (entry.kind === "deploy") return entry.destination || "?"
+  return entry.branch || "?"
+}
+
 function relativeTime(isoString, nowMs) {
   var ts = Date.parse(isoString)
   if (!isFinite(ts)) return "unknown time"
@@ -69,6 +77,7 @@ if (typeof module !== "undefined") {
     badCount: badCount,
     barText: barText,
     stateLabel: stateLabel,
+    rowLocation: rowLocation,
     relativeTime: relativeTime
   }
 }

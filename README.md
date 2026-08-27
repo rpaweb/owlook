@@ -13,10 +13,13 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
   project, it resolves `owner/repo` and the current branch from the local
   git checkout, fetches the latest workflow run for that branch, and records
   its status, conclusion, jobs, and steps.
-- State is unified into one row per **project + observed branch**,
-  deduplicated so the most recently timestamped observation always wins, and
-  written atomically to `$XDG_RUNTIME_DIR/owlook.json` — but **only when it
-  actually changes**, so a no-op poll never touches the file.
+- State is unified into rows of two disjoint kinds, deduplicated so the most
+  recently timestamped observation always wins for its identity, and written
+  atomically to `$XDG_RUNTIME_DIR/owlook.json` — but **only when it actually
+  changes**, so a no-op poll never touches the file. A `"ci"` row is
+  identified by project + branch; a `"deploy"` row (nothing produces these
+  yet) would be identified by project + destination. They're never the same
+  field — see `Owlook::Observation#key`.
 - A Quattro bar widget (`shell/plugins/status/`) reads that file through
   Quickshell's `FileView` with `watchChanges: true` — no polling on the QML
   side, no process spawned by the widget itself.
@@ -30,10 +33,10 @@ installed in a live shell yet — see below before you enable it.
 
 Not built yet:
 
-- **Kamal destinations.** Nothing currently reads `config/deploy.yml`. Until
-  a source exists that reports a real Kamal destination, every
-  GitHub-sourced row uses the **branch name** as `destination` — it is not a
-  real deploy destination. See the comment in `lib/owlook/collector.rb`.
+- **Kamal destinations.** Nothing currently reads `config/deploy.yml`, and
+  nothing produces a `"deploy"`-kind observation. Every row today is `"ci"`,
+  keyed by branch — there is no destination to show, so the field stays
+  `null` rather than being faked from the branch name.
 - **Queues** (Solid Queue first; Sidekiq behind the same adapter interface
   later, maybe).
 - **Notifications** on state change.

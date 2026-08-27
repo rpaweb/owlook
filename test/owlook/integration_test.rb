@@ -6,8 +6,7 @@ require "tmpdir"
 # Proves the plumbing Hito 3 promises: observations -> Store -> StateWriter
 # -> JSON file, deduplicated and written atomically only on real change.
 # Deliberately source-agnostic — how a real source's payload becomes an
-# Observation is Hito 4's job (it needs the branch->destination mapping
-# question answered first, which is still open).
+# Observation is each source's own job (see Collector for GitHub's).
 class Owlook::IntegrationTest < Minitest::Test
   def test_recorded_observations_land_in_the_state_file
     Dir.mktmpdir do |dir|
@@ -16,8 +15,8 @@ class Owlook::IntegrationTest < Minitest::Test
       writer = Owlook::StateWriter.new(path)
 
       store.record(Owlook::Observation.new(
-        project: "acme/widgets", destination: "production", version: "abc123",
-        state: "success", timestamp: Time.at(100), author: "rafael",
+        project: "acme/widgets", kind: "ci", branch: "main", destination: nil,
+        version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
         source: "github", observed_at: Time.at(150)
       ))
       writer.write(store.snapshot)
@@ -35,8 +34,8 @@ class Owlook::IntegrationTest < Minitest::Test
       store = Owlook::Store.new
       writer = Owlook::StateWriter.new(path)
       observation = Owlook::Observation.new(
-        project: "acme/widgets", destination: "production", version: "abc123",
-        state: "success", timestamp: Time.at(100), author: "rafael",
+        project: "acme/widgets", kind: "ci", branch: "main", destination: nil,
+        version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
         source: "github", observed_at: Time.at(150)
       )
 
@@ -59,23 +58,49 @@ class Owlook::IntegrationTest < Minitest::Test
       store = Owlook::Store.new
       writer = Owlook::StateWriter.new(path)
 
+      # Two different sources reporting on the *same* identity (project +
+      # destination) — e.g. a Kamal hook and a future SSH reconciliation
+      # check, both about the "production" deploy destination.
       store.record(Owlook::Observation.new(
-        project: "acme/widgets", destination: "production", version: "abc123",
-        state: "running", timestamp: Time.at(100), author: "rafael",
-        source: "github", observed_at: Time.at(150)
+        project: "acme/widgets", kind: "deploy", branch: nil, destination: "production",
+        version: "abc123", state: "running", timestamp: Time.at(100), author: "rafael",
+        source: "kamal-hook", observed_at: Time.at(150)
       ))
       writer.write(store.snapshot)
 
       store.record(Owlook::Observation.new(
-        project: "acme/widgets", destination: "production", version: "abc123",
-        state: "success", timestamp: Time.at(200), author: "rafael",
-        source: "kamal-hook", observed_at: Time.at(250)
+        project: "acme/widgets", kind: "deploy", branch: nil, destination: "production",
+        version: "abc123", state: "success", timestamp: Time.at(200), author: "rafael",
+        source: "ssh-check", observed_at: Time.at(250)
       ))
       writer.write(store.snapshot)
 
       on_disk = JSON.parse(File.read(path))
       assert_equal "success", on_disk.first["state"]
-      assert_equal "kamal-hook", on_disk.first["source"]
+      assert_equal "ssh-check", on_disk.first["source"]
+    end
+  end
+
+  def test_a_ci_row_and_a_deploy_row_for_the_same_project_coexist
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "state.json")
+      store = Owlook::Store.new
+      writer = Owlook::StateWriter.new(path)
+
+      store.record(Owlook::Observation.new(
+        project: "acme/widgets", kind: "ci", branch: "main", destination: nil,
+        version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
+        source: "github", observed_at: Time.at(150)
+      ))
+      store.record(Owlook::Observation.new(
+        project: "acme/widgets", kind: "deploy", branch: nil, destination: "production",
+        version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
+        source: "kamal-hook", observed_at: Time.at(150)
+      ))
+      writer.write(store.snapshot)
+
+      on_disk = JSON.parse(File.read(path))
+      assert_equal 2, on_disk.size
     end
   end
 end
