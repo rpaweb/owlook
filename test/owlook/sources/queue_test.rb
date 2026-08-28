@@ -95,6 +95,33 @@ class Owlook::Sources::QueueTest < Minitest::Test
     assert_includes error.message, "No container found"
   end
 
+  def test_resolve_ssh_auth_sock_prefers_the_env_var
+    sock = Owlook::Sources::Queue.resolve_ssh_auth_sock(
+      env: { "SSH_AUTH_SOCK" => "/run/user/1000/explicit.sock" },
+      socket_exists: ->(_path) { flunk "should not need to check a fallback when the env var is set" }
+    )
+
+    assert_equal "/run/user/1000/explicit.sock", sock
+  end
+
+  def test_resolve_ssh_auth_sock_falls_back_to_the_gpg_agent_ssh_socket
+    sock = Owlook::Sources::Queue.resolve_ssh_auth_sock(
+      env: { "XDG_RUNTIME_DIR" => "/run/user/1000" },
+      socket_exists: ->(path) { path == "/run/user/1000/gnupg/S.gpg-agent.ssh" }
+    )
+
+    assert_equal "/run/user/1000/gnupg/S.gpg-agent.ssh", sock
+  end
+
+  def test_resolve_ssh_auth_sock_returns_nil_when_nothing_is_available
+    sock = Owlook::Sources::Queue.resolve_ssh_auth_sock(
+      env: { "XDG_RUNTIME_DIR" => "/run/user/1000" },
+      socket_exists: ->(_path) { false }
+    )
+
+    assert_nil sock
+  end
+
   private
 
   class FakeShell

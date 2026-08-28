@@ -32,10 +32,36 @@ module Owlook
         "failed: SolidQueue::FailedExecution.count}.to_json)"
 
       DEFAULT_SHELL = lambda do |command, chdir:|
-        stdout, stderr, status = Open3.capture3(*command, chdir: chdir)
+        env = {}
+        sock = resolve_ssh_auth_sock
+        env["SSH_AUTH_SOCK"] = sock if sock
+
+        stdout, stderr, status = Open3.capture3(env, *command, chdir: chdir)
         raise CommandFailedError.new(command, status, stderr) unless status.success?
 
         stdout
+      end
+
+      # `systemctl --user`'s manager environment does not inherit
+      # SSH_AUTH_SOCK from the desktop session (confirmed empirically:
+      # `systemctl --user show-environment` has no such entry even in a
+      # live session with a working agent) — a systemd --user unit like the
+      # collector's needs to find it another way. gpg-agent's SSH support
+      # listens on a fixed, well-known path under $XDG_RUNTIME_DIR
+      # (confirmed present as a real, active `gpg-agent-ssh.socket` systemd
+      # unit on a real machine) rather than a randomly-generated one, so it
+      # can be reached without inheriting anything. Only a fallback: an
+      # explicit SSH_AUTH_SOCK always wins, and a different agent (plain
+      # ssh-agent, 1Password, etc.) still needs the user's own setup to
+      # expose it — this doesn't invent unlocking a key, only reaching an
+      # agent that already has one unlocked.
+      def self.resolve_ssh_auth_sock(env: ENV, socket_exists: ->(path) { File.socket?(path) })
+        explicit = env["SSH_AUTH_SOCK"]
+        return explicit if explicit && !explicit.empty?
+
+        runtime_dir = env.fetch("XDG_RUNTIME_DIR", "/run/user/#{Process.uid}")
+        fallback = File.join(runtime_dir, "gnupg", "S.gpg-agent.ssh")
+        fallback if socket_exists.call(fallback)
       end
 
       def initialize(shell: DEFAULT_SHELL)
