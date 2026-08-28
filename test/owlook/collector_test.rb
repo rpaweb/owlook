@@ -12,7 +12,12 @@ class Owlook::CollectorTest < Minitest::Test
         github_source = FakeGithubSource.new(
           ["acme", "widgets", "main"] => {
             head_sha: "abc123", status: "completed", conclusion: "success",
-            updated_at: "2026-08-26T12:00:00Z", actor: "rafael"
+            updated_at: "2026-08-26T12:00:00Z", actor: "rafael",
+            jobs: [
+              { name: "test", status: "completed", conclusion: "success", steps: [] },
+              { name: "lint", status: "completed", conclusion: "success", steps: [] },
+              { name: "deploy", status: "completed", conclusion: "skipped", steps: [] }
+            ]
           }
         )
         collector = Owlook::Collector.new(
@@ -35,6 +40,9 @@ class Owlook::CollectorTest < Minitest::Test
         assert_equal "success", entry["state"]
         assert_equal "rafael", entry["author"]
         assert_equal "github", entry["source"]
+        # skipped jobs don't count against the total the way a failure
+        # would — GitHub's own UI treats a run with only skips as green too.
+        assert_equal({ "jobs_total" => 3, "jobs_passed" => 2, "jobs_skipped" => 1 }, entry["details"])
       end
     end
   end

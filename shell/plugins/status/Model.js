@@ -57,16 +57,40 @@ function stateLabel(state) {
 // success, {error} when the check itself failed (see Collector -
 // poll_destination_queue records "unreachable" rather than omitting the
 // row, so the panel can say why data is missing instead of just not
-// showing a destination at all).
-function queueDetailText(entry) {
+// showing a destination at all). Kept short — the full error belongs in a
+// tooltip, not crammed into the main line.
+function queueShortText(entry) {
   if (!entry) return ""
-  if (entry.state === "unreachable") {
-    var error = (entry.details && entry.details.error) || "unknown error"
-    return "SSH unreachable — " + error
-  }
+  if (entry.state === "unreachable") return "SSH unreachable"
   var details = entry.details || {}
   return "ready " + (details.ready !== undefined ? details.ready : "?")
-    + " · failed " + (details.failed !== undefined ? details.failed : "?")
+    + "  ·  failed " + (details.failed !== undefined ? details.failed : "?")
+}
+
+function queueErrorDetail(entry) {
+  if (!entry || entry.state !== "unreachable") return ""
+  return (entry.details && entry.details.error) || "unknown error"
+}
+
+// "check" (✓/✗/…) rather than a specific glyph codepoint from Omarchy's
+// icon font, which isn't verified to exist — these are plain Unicode and
+// render with any font's fallback chain.
+function ciIcon(state) {
+  if (isBad(state)) return "✗"
+  if (state === "success" || state === "ok") return "✓"
+  return "…"
+}
+
+// "3/3", or "2/3 · 1 skipped" when something was skipped — skips don't
+// count against the total the way a failure would (matches GitHub's own
+// treatment: a run with only skips is still green). Falls back to the
+// plain state label when a row predates job counts being recorded.
+function ciSummary(entry) {
+  var details = entry.details || {}
+  if (details.jobs_total === undefined) return stateLabel(entry.state)
+  var text = details.jobs_passed + "/" + details.jobs_total
+  if (details.jobs_skipped) text += "  ·  " + details.jobs_skipped + " skipped"
+  return text
 }
 
 // A "ci" row is identified by branch, a "deploy"/"queue" row by destination
@@ -146,7 +170,10 @@ if (typeof module !== "undefined") {
     barText: barText,
     stateLabel: stateLabel,
     rowLocation: rowLocation,
-    queueDetailText: queueDetailText,
+    queueShortText: queueShortText,
+    queueErrorDetail: queueErrorDetail,
+    ciIcon: ciIcon,
+    ciSummary: ciSummary,
     relativeTime: relativeTime,
     groupByProject: groupByProject
   }

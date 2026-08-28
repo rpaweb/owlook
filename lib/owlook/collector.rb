@@ -73,6 +73,7 @@ module Owlook
         destination: nil,
         version: run[:head_sha],
         state: run[:conclusion] || run[:status],
+        details: job_counts(run[:jobs]),
         timestamp: Time.parse(run[:updated_at]),
         author: run[:actor],
         source: "github",
@@ -80,6 +81,19 @@ module Owlook
       ))
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping #{path}: #{e.message}")
+    end
+
+    # GitHub's own UI treats a run with only skipped jobs as green, not as
+    # partially failed — skips don't count against the total the way a
+    # failure would. jobs_passed + jobs_skipped can be less than jobs_total
+    # when something actually failed.
+    def job_counts(jobs)
+      jobs = Array(jobs)
+      {
+        jobs_total: jobs.size,
+        jobs_passed: jobs.count { |job| job[:conclusion] == "success" },
+        jobs_skipped: jobs.count { |job| job[:conclusion] == "skipped" }
+      }
     end
 
     def poll_project_queues(path)

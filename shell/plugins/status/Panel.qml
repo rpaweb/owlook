@@ -65,8 +65,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(320))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(480))
+    contentWidth: panel.fittedContentWidth(Style.space(340))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(520))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -84,7 +84,7 @@ Panel {
         Column {
           id: column
           width: flick.width
-          spacing: Style.space(12)
+          spacing: Style.space(14)
 
           PanelHero {
             width: parent.width
@@ -122,70 +122,146 @@ Panel {
             Column {
               id: projectBlock
               required property var modelData
+              required property int index
               width: column.width
-              spacing: Style.space(6)
+              spacing: Style.space(10)
+
+              PanelSeparator {
+                width: parent.width
+                foreground: root.barForeground
+                visible: projectBlock.index > 0
+              }
 
               Text {
                 width: projectBlock.width
                 text: projectBlock.modelData.project
                 color: root.barForeground
                 font.family: Style.font.family
-                font.pixelSize: Style.font.bodySmall
+                font.pixelSize: Style.font.body
                 font.bold: true
                 elide: Text.ElideRight
               }
 
-              // CI: one row per branch observed (usually just one — whatever
-              // branch the local checkout was on when the collector polled).
-              Repeater {
-                model: projectBlock.modelData.ci
+              // CI: a section of its own, never mixed visually with
+              // destinations — a branch ("master") sitting in the same list
+              // as destination names ("staging", "production") could read
+              // as if it were one too.
+              Column {
+                width: projectBlock.width
+                spacing: Style.space(4)
+                visible: projectBlock.modelData.ci.length > 0
 
-                StatusLine {
-                  width: projectBlock.width
+                PanelSectionHeader {
+                  text: "CI"
                   foreground: root.barForeground
-                  urgent: root.urgent
-                  bad: Model.isBad(modelData.state)
-                  label: "branch " + (modelData.branch || "?")
-                  detail: Model.stateLabel(modelData.state) + " · "
-                    + Model.relativeTime(modelData.observed_at, root.nowMs) + " · " + modelData.source
+                }
+
+                Repeater {
+                  model: projectBlock.modelData.ci
+
+                  Item {
+                    id: ciRow
+                    required property var modelData
+                    width: projectBlock.width
+                    implicitHeight: Math.max(ciIcon.implicitHeight, ciText.implicitHeight)
+
+                    Text {
+                      id: ciIcon
+                      anchors.left: parent.left
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: Model.ciIcon(ciRow.modelData.state)
+                      color: Model.isBad(ciRow.modelData.state) ? root.urgent : root.barForeground
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.bodySmall
+                      font.bold: true
+                    }
+
+                    Text {
+                      id: ciText
+                      anchors.left: ciIcon.right
+                      anchors.leftMargin: Style.space(8)
+                      anchors.right: parent.right
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: ciRow.modelData.branch + "  —  " + Model.ciSummary(ciRow.modelData)
+                        + "  ·  " + Model.relativeTime(ciRow.modelData.observed_at, root.nowMs)
+                      color: Model.isBad(ciRow.modelData.state) ? root.urgent : Qt.darker(root.barForeground, 1.15)
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideRight
+                    }
+                  }
                 }
               }
 
-              // Deploy + queue: one block per destination, joined here for
-              // display even though they're separate rows in the state file
-              // (see Model.groupByProject).
-              Repeater {
-                model: projectBlock.modelData.destinations
+              // Deploys + queues: one block per destination. deploy is
+              // omitted entirely (not "no data yet") — nothing produces
+              // that kind in v1, and a permanent placeholder line for a
+              // feature that doesn't exist is just noise.
+              Column {
+                width: projectBlock.width
+                spacing: Style.space(4)
+                visible: projectBlock.modelData.destinations.length > 0
 
-                Column {
-                  id: destBlock
-                  required property var modelData
-                  width: projectBlock.width
-                  spacing: Style.space(2)
+                PanelSectionHeader {
+                  text: "DEPLOYS & QUEUES"
+                  foreground: root.barForeground
+                }
 
-                  StatusLine {
-                    width: destBlock.width
-                    foreground: root.barForeground
-                    urgent: root.urgent
-                    bad: destBlock.modelData.deploy ? Model.isBad(destBlock.modelData.deploy.state) : false
-                    label: destBlock.modelData.destination
-                    detail: destBlock.modelData.deploy
-                      ? (Model.stateLabel(destBlock.modelData.deploy.state) + " · "
-                          + Model.relativeTime(destBlock.modelData.deploy.observed_at, root.nowMs))
-                      : "no deploy data yet"
-                  }
+                Repeater {
+                  model: projectBlock.modelData.destinations
 
-                  StatusLine {
-                    width: destBlock.width
-                    visible: destBlock.modelData.queue !== null
-                    foreground: root.barForeground
-                    urgent: root.urgent
-                    bad: destBlock.modelData.queue ? Model.isBad(destBlock.modelData.queue.state) : false
-                    label: "  queue"
-                    detail: destBlock.modelData.queue
-                      ? (Model.queueDetailText(destBlock.modelData.queue) + " · "
-                          + Model.relativeTime(destBlock.modelData.queue.observed_at, root.nowMs))
-                      : ""
+                  Column {
+                    id: destBlock
+                    required property var modelData
+                    width: projectBlock.width
+                    spacing: Style.space(2)
+
+                    Text {
+                      width: destBlock.width
+                      text: destBlock.modelData.destination
+                      color: root.barForeground
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
+
+                    StatusLine {
+                      width: destBlock.width
+                      visible: destBlock.modelData.deploy !== null
+                      foreground: root.barForeground
+                      urgent: root.urgent
+                      bad: destBlock.modelData.deploy ? Model.isBad(destBlock.modelData.deploy.state) : false
+                      text: destBlock.modelData.deploy
+                        ? (Model.stateLabel(destBlock.modelData.deploy.state) + "  ·  "
+                            + Model.relativeTime(destBlock.modelData.deploy.observed_at, root.nowMs))
+                        : ""
+                    }
+
+                    StatusLine {
+                      id: queueLine
+                      width: destBlock.width
+                      visible: destBlock.modelData.queue !== null
+                      foreground: root.barForeground
+                      urgent: root.urgent
+                      bad: destBlock.modelData.queue ? Model.isBad(destBlock.modelData.queue.state) : false
+                      text: destBlock.modelData.queue
+                        ? (Model.queueShortText(destBlock.modelData.queue) + "  ·  "
+                            + Model.relativeTime(destBlock.modelData.queue.observed_at, root.nowMs))
+                        : ""
+
+                      MouseArea {
+                        id: queueHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        acceptedButtons: Qt.NoButton
+                        enabled: destBlock.modelData.queue && destBlock.modelData.queue.state === "unreachable"
+                      }
+
+                      PanelToolTip {
+                        visible: queueHover.enabled && queueHover.containsMouse
+                        text: destBlock.modelData.queue ? Model.queueErrorDetail(destBlock.modelData.queue) : ""
+                      }
+                    }
                   }
                 }
               }
@@ -201,17 +277,15 @@ Panel {
     property color foreground: Color.foreground
     property color urgent: Color.urgent
     property bool bad: false
-    property string label: ""
-    property string detail: ""
+    property alias text: lineText.text
 
     implicitHeight: lineText.implicitHeight
 
     Text {
       id: lineText
       width: statusLine.width
-      text: statusLine.label + (statusLine.detail !== "" ? "  ·  " + statusLine.detail : "")
       textFormat: Text.PlainText
-      color: statusLine.bad ? statusLine.urgent : Qt.darker(statusLine.foreground, 1.25)
+      color: statusLine.bad ? statusLine.urgent : Qt.darker(statusLine.foreground, 1.15)
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       elide: Text.ElideRight
