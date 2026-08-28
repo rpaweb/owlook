@@ -48,7 +48,7 @@ class Owlook::StoreTest < Minitest::Test
 
   def test_different_projects_with_the_same_branch_name_are_tracked_independently
     store = Owlook::Store.new
-    store.record(ci_observation(project: "rubyevents", branch: "main", timestamp: Time.at(100)))
+    store.record(ci_observation(project: "exampleapp", branch: "main", timestamp: Time.at(100)))
     store.record(ci_observation(project: "widgets", branch: "main", timestamp: Time.at(100)))
 
     assert_equal 2, store.snapshot.size

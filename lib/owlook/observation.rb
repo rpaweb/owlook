@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 module Owlook
-  # One reported fact about a project, from one source. Two disjoint kinds,
-  # not one field stretched to cover both:
+  # One reported fact about a project, from one source. Three disjoint kinds,
+  # not one field stretched to cover all of them:
   #
   #   kind: "ci"     - identified by project + branch. What GitHub Actions
   #                     reports. destination is always nil here — CI has no
@@ -13,22 +13,35 @@ module Owlook
   #                     out a feature branch would silently stop reporting
   #                     production's status.
   #   kind: "deploy"  - identified by project + destination. Nothing
-  #                     produces these yet (Kamal hooks/SSH are out of v1
-  #                     scope) — destination legitimately has no source, so
-  #                     it stays absent rather than lying.
+  #                     produces these yet (Kamal hooks/SSH reconciliation
+  #                     are out of v1 scope) — destination legitimately has
+  #                     no source, so it stays absent rather than lying.
+  #   kind: "queue"   - identified by project + destination, same as
+  #                     "deploy": a queue backlog belongs to a deployed
+  #                     environment, not a branch. Produced by
+  #                     Sources::Queue. Backlog/dead-job counts live in
+  #                     `details` rather than as top-level fields, since
+  #                     they only make sense for this one kind.
   #
   # version carries the git SHA that will eventually unify a "ci" and a
-  # "deploy" row describing the same commit; timestamp is when the
-  # underlying event happened (resolves conflicts); observed_at is when this
-  # collector last confirmed it (the basis for "how stale is this").
+  # "deploy" row describing the same commit (nil for "queue", which has no
+  # version concept); timestamp is when the underlying event happened
+  # (resolves conflicts); observed_at is when this collector last confirmed
+  # it (the basis for "how stale is this").
   Observation = Struct.new(
-    :project, :kind, :branch, :destination, :version, :state, :timestamp, :author, :source, :observed_at,
+    :project, :kind, :branch, :destination, :version, :state, :details,
+    :timestamp, :author, :source, :observed_at,
     keyword_init: true
   ) do
+    def initialize(**kwargs)
+      super(**{ details: {} }.merge(kwargs))
+    end
+
     def key
       case kind
       when "ci" then [project, "ci", branch]
       when "deploy" then [project, "deploy", destination]
+      when "queue" then [project, "queue", destination]
       else raise ArgumentError, "unknown observation kind: #{kind.inspect}"
       end
     end

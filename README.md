@@ -9,17 +9,29 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
 - **One collector process** (`bin/owlook-collector`, installable as a
   systemd `--user` unit) polls every project listed in your config once per
   cycle.
-- **GitHub Actions** is the only source implemented so far: for each
-  project, it resolves `owner/repo` and the current branch from the local
-  git checkout, fetches the latest workflow run for that branch, and records
-  its status, conclusion, jobs, and steps.
-- State is unified into rows of two disjoint kinds, deduplicated so the most
-  recently timestamped observation always wins for its identity, and written
-  atomically to `$XDG_RUNTIME_DIR/owlook.json` — but **only when it actually
-  changes**, so a no-op poll never touches the file. A `"ci"` row is
-  identified by project + branch; a `"deploy"` row (nothing produces these
-  yet) would be identified by project + destination. They're never the same
-  field — see `Owlook::Observation#key`.
+- **GitHub Actions**: for each project, resolves `owner/repo` and the
+  current branch from the local git checkout, fetches the latest workflow
+  run for that branch, and records its status, conclusion, jobs, and steps.
+- **Solid Queue**: for each of a project's Kamal destinations (read from
+  `config/deploy*.yml`, filesystem only, no SSH), runs `bin/rails runner`
+  inside the *already-running* production container over SSH
+  (`kamal app exec --reuse`) and records backlog (`ready` jobs) and dead-job
+  (`failed` jobs) counts. Needs zero code added to the target Rails app —
+  Solid Queue's own model classes already exist — and zero new credentials,
+  since it reuses whatever SSH access you already have for `kamal deploy`
+  itself. Runs on its own, slower cadence than the GitHub Actions poll: an
+  SSH round-trip isn't free the way a GitHub API call is.
+- State is unified into rows of three disjoint kinds, deduplicated so the
+  most recently timestamped observation always wins for its identity, and
+  written atomically to `$XDG_RUNTIME_DIR/owlook.json` — but **only when it
+  actually changes**, so a no-op poll never touches the file. A `"ci"` row
+  is identified by project + branch; `"deploy"` (nothing produces these yet)
+  and `"queue"` rows are identified by project + destination — a deploy
+  destination and a branch are different things, never the same field. See
+  `Owlook::Observation#key`. A destination's `"deploy"` and `"queue"` rows
+  stay separate in the state file (different sources, different write
+  cadences — merging them into one row would let one source silently
+  clobber the other's data) and are joined only for display, by the widget.
 - A Quattro bar widget (`shell/plugins/status/`) reads that file through
   Quickshell's `FileView` with `watchChanges: true` — no polling on the QML
   side, no process spawned by the widget itself.
@@ -27,18 +39,22 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
 ## Status / roadmap
 
 Built and covered by tests: config loading, the GitHub Actions source, the
-unified store + state writer, the collector loop, and the systemd unit. The
-bar widget passes `omarchy plugin validate` and `qmllint`, but hasn't been
-installed in a live shell yet — see below before you enable it.
+Kamal destination reader, the Solid Queue source, the unified store + state
+writer, the collector loop, and the systemd unit. The bar widget passes
+`omarchy plugin validate` and `qmllint`, but hasn't been installed in a live
+shell yet — see below before you enable it. The Solid Queue source hasn't
+been exercised against a real deployed server yet either — it's only been
+run against fakes in tests, deliberately, since the real thing means SSHing
+into and executing code on production.
 
 Not built yet:
 
-- **Kamal destinations.** Nothing currently reads `config/deploy.yml`, and
-  nothing produces a `"deploy"`-kind observation. Every row today is `"ci"`,
-  keyed by branch — there is no destination to show, so the field stays
-  `null` rather than being faked from the branch name.
-- **Queues** (Solid Queue first; Sidekiq behind the same adapter interface
-  later, maybe).
+- **Kamal deploy state.** Nothing produces a `"deploy"`-kind observation —
+  that needs Kamal hooks or `kamal app version`, both explicitly out of v1
+  scope (see below). Destinations themselves are read (for queue checks),
+  just not deploy status.
+- Sidekiq, behind the same source interface as Solid Queue — only if it
+  turns out to be needed; not planned as a stub.
 - **Notifications** on state change.
 
 Explicitly out of scope for v1, not planned as stubs: Kamal hooks / SSH
@@ -62,7 +78,7 @@ one repo — no sub-gems, no monorepo.
 
 ```yaml
 projects:
-  - ~/Work/oss/rubyevents
+  - ~/Work/oss/exampleapp
   - ~/Work/oss/another-project
 ```
 
@@ -86,9 +102,11 @@ install time and bakes it into `ExecStart=` — never a mise shim. If you
 change the pinned Ruby version, re-run the installer and
 `systemctl --user restart owlook` to pick up the new path.
 
-`OWLOOK_POLL_INTERVAL` (seconds, default `30`) and `OWLOOK_CONFIG` (default
-`~/.config/owlook/config.yml`) are read from the environment if you need to
-override them.
+`OWLOOK_POLL_INTERVAL` (seconds, default `30`, GitHub Actions),
+`OWLOOK_QUEUE_POLL_INTERVAL` (seconds, default `60`, Solid Queue — an
+estimate, not measured against a real server yet), and `OWLOOK_CONFIG`
+(default `~/.config/owlook/config.yml`) are read from the environment if you
+need to override them.
 
 ## The bar widget
 

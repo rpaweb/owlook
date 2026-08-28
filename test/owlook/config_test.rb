@@ -10,14 +10,14 @@ class Owlook::ConfigTest < Minitest::Test
       path = File.join(dir, "config.yml")
       File.write(path, <<~YAML)
         projects:
-          - #{dir}/rubyevents
+          - #{dir}/exampleapp
           - ~/Work/oss/other-project
       YAML
 
       config = Owlook::Config.load(path)
 
       assert_equal [
-        File.join(dir, "rubyevents"),
+        File.join(dir, "exampleapp"),
         File.expand_path("~/Work/oss/other-project")
       ], config.projects
     end

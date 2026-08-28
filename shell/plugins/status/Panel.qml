@@ -114,19 +114,17 @@ Panel {
           }
 
           Repeater {
-            model: root.entries
+            model: Model.groupByProject(root.entries)
 
             Column {
-              id: row
+              id: projectBlock
               required property var modelData
               width: column.width
-              spacing: Style.space(2)
-
-              readonly property bool bad: Model.isBad(modelData.state)
+              spacing: Style.space(6)
 
               Text {
-                width: row.width
-                text: modelData.project + " · " + Model.rowLocation(modelData)
+                width: projectBlock.width
+                text: projectBlock.modelData.project
                 color: root.barForeground
                 font.family: Style.font.family
                 font.pixelSize: Style.font.bodySmall
@@ -134,19 +132,87 @@ Panel {
                 elide: Text.ElideRight
               }
 
-              Text {
-                width: row.width
-                text: Model.stateLabel(modelData.state) + " · "
-                  + Model.relativeTime(modelData.observed_at, root.nowMs) + " · " + modelData.source
-                color: row.bad ? root.urgent : Qt.darker(root.barForeground, 1.4)
-                font.family: Style.font.family
-                font.pixelSize: Style.font.caption
-                elide: Text.ElideRight
+              // CI: one row per branch observed (usually just one — whatever
+              // branch the local checkout was on when the collector polled).
+              Repeater {
+                model: projectBlock.modelData.ci
+
+                StatusLine {
+                  width: projectBlock.width
+                  foreground: root.barForeground
+                  urgent: root.urgent
+                  bad: Model.isBad(modelData.state)
+                  label: "branch " + (modelData.branch || "?")
+                  detail: Model.stateLabel(modelData.state) + " · "
+                    + Model.relativeTime(modelData.observed_at, root.nowMs) + " · " + modelData.source
+                }
+              }
+
+              // Deploy + queue: one block per destination, joined here for
+              // display even though they're separate rows in the state file
+              // (see Model.groupByProject).
+              Repeater {
+                model: projectBlock.modelData.destinations
+
+                Column {
+                  id: destBlock
+                  required property var modelData
+                  width: projectBlock.width
+                  spacing: Style.space(2)
+
+                  StatusLine {
+                    width: destBlock.width
+                    foreground: root.barForeground
+                    urgent: root.urgent
+                    bad: destBlock.modelData.deploy ? Model.isBad(destBlock.modelData.deploy.state) : false
+                    label: destBlock.modelData.destination
+                    detail: destBlock.modelData.deploy
+                      ? (Model.stateLabel(destBlock.modelData.deploy.state) + " · "
+                          + Model.relativeTime(destBlock.modelData.deploy.observed_at, root.nowMs))
+                      : "no deploy data yet"
+                  }
+
+                  StatusLine {
+                    width: destBlock.width
+                    visible: destBlock.modelData.queue !== null
+                    foreground: root.barForeground
+                    urgent: root.urgent
+                    bad: destBlock.modelData.queue ? Model.isBad(destBlock.modelData.queue.state) : false
+                    label: "  queue"
+                    detail: destBlock.modelData.queue
+                      ? ("ready " + destBlock.modelData.queue.details.ready
+                          + " · failed " + destBlock.modelData.queue.details.failed + " · "
+                          + Model.relativeTime(destBlock.modelData.queue.observed_at, root.nowMs))
+                      : ""
+                  }
+                }
               }
             }
           }
         }
       }
+    }
+  }
+
+  component StatusLine: Item {
+    id: statusLine
+    property color foreground: Color.foreground
+    property color urgent: Color.urgent
+    property bool bad: false
+    property string label: ""
+    property string detail: ""
+
+    implicitHeight: lineText.implicitHeight
+
+    Text {
+      id: lineText
+      width: statusLine.width
+      text: statusLine.label + (statusLine.detail !== "" ? "  ·  " + statusLine.detail : "")
+      textFormat: Text.PlainText
+      color: statusLine.bad ? statusLine.urgent : Qt.darker(statusLine.foreground, 1.25)
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+      elide: Text.ElideRight
     }
   }
 }

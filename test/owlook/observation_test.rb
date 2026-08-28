@@ -23,6 +23,16 @@ class Owlook::ObservationTest < Minitest::Test
     assert_equal ["acme/widgets", "deploy", "production"], observation.key
   end
 
+  def test_key_for_a_queue_observation_is_project_and_destination
+    observation = Owlook::Observation.new(
+      project: "acme/widgets", kind: "queue", branch: nil, destination: "production",
+      version: nil, state: "ok", details: { ready: 3, failed: 0 }, timestamp: Time.now,
+      author: nil, source: "kamal-exec", observed_at: Time.now
+    )
+
+    assert_equal ["acme/widgets", "queue", "production"], observation.key
+  end
+
   def test_key_raises_for_an_unknown_kind
     observation = Owlook::Observation.new(
       project: "acme/widgets", kind: "bogus", branch: "main", destination: nil,

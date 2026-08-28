@@ -6,8 +6,8 @@ require "fileutils"
 
 class Owlook::GitRepoTest < Minitest::Test
   def test_owner_and_repo_from_an_https_remote
-    with_repo(remote: "https://github.com/rubyevents/rubyevents.git") do |path|
-      assert_equal ["rubyevents", "rubyevents"], Owlook::GitRepo.new(path).owner_and_repo
+    with_repo(remote: "https://github.com/exampleapp/exampleapp.git") do |path|
+      assert_equal ["exampleapp", "exampleapp"], Owlook::GitRepo.new(path).owner_and_repo
     end
   end
 

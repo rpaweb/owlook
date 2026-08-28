@@ -16,7 +16,11 @@ require_relative "../lib/owlook"
 
 CONFIG_PATH = File.expand_path(ENV.fetch("OWLOOK_CONFIG", "~/.config/owlook/config.yml"))
 STATE_PATH = File.join(ENV.fetch("XDG_RUNTIME_DIR", "/tmp"), "owlook.json")
-POLL_INTERVAL = Integer(ENV.fetch("OWLOOK_POLL_INTERVAL", "30"))
+CI_POLL_INTERVAL = Integer(ENV.fetch("OWLOOK_POLL_INTERVAL", "30"))
+# A queue check is a real SSH round-trip (kamal app exec --reuse), not a free
+# API call — needs its own, slower cadence. 60s is a starting estimate, not
+# measured against a real server yet; tune with this env var.
+QUEUE_POLL_INTERVAL = Integer(ENV.fetch("OWLOOK_QUEUE_POLL_INTERVAL", "60"))
 
 def log(message)
   warn "[owlook] #{Time.now.iso8601} #{message}"
@@ -34,5 +38,6 @@ collector = Owlook::Collector.new(
   logger: method(:log)
 )
 
-log("starting: #{config.projects.size} project(s), polling every #{POLL_INTERVAL}s -> #{STATE_PATH}")
-collector.run(interval: POLL_INTERVAL)
+log("starting: #{config.projects.size} project(s), CI every #{CI_POLL_INTERVAL}s, " \
+  "queues every #{QUEUE_POLL_INTERVAL}s -> #{STATE_PATH}")
+collector.run(ci_interval: CI_POLL_INTERVAL, queue_interval: QUEUE_POLL_INTERVAL)
