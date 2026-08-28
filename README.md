@@ -54,13 +54,13 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
 
 Built and covered by tests: config loading, the GitHub Actions source, the
 Kamal destination reader, the Solid Queue source, the unified store + state
-writer, the collector loop, and the systemd unit. The bar widget passes
-`omarchy plugin validate` and `qmllint`, but hasn't been installed in a live
-shell yet — see below before you enable it. The Solid Queue source has been
-verified against a real, currently-running multi-role Kamal deployment
+writer, the collector loop, and the systemd unit. The Solid Queue source has
+been verified against a real, currently-running multi-role Kamal deployment
 (both a staging and a production destination), not just fakes in tests —
 that live run is what surfaced the `SSH_AUTH_SOCK` fallback, the
-shell-escaping fix, and the multi-role output handling described above.
+shell-escaping fix, and the multi-role output handling described above. The
+bar widget is installed and running in a live Quattro shell, confirmed
+visually (bar pill + panel rendering real collector data).
 
 Not built yet:
 
