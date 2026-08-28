@@ -119,7 +119,10 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
-  def test_poll_queues_once_skips_a_destination_whose_check_fails_and_continues
+  # A silently-skipped destination looks identical to one nobody's checked
+  # yet — the widget can't tell "SSH is broken" from "no data so far". Record
+  # what happened instead of omitting the row.
+  def test_poll_queues_once_records_an_unreachable_row_when_a_check_fails_and_continues
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
@@ -134,9 +137,15 @@ class Owlook::CollectorTest < Minitest::Test
 
         collector.poll_queues_once
 
-        on_disk = JSON.parse(File.read(state_path))
-        assert_equal 1, on_disk.size
-        assert_equal "default", on_disk.first["destination"]
+        on_disk = JSON.parse(File.read(state_path)).sort_by { |e| e["destination"] }
+        assert_equal 2, on_disk.size
+
+        default_row, staging_row = on_disk
+        assert_equal "ok", default_row["state"]
+
+        assert_equal "unreachable", staging_row["state"]
+        assert_equal "queue", staging_row["kind"]
+        assert_includes staging_row["details"]["error"], "not stubbed"
       end
     end
   end

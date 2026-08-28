@@ -17,10 +17,24 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
   inside the *already-running* production container over SSH
   (`kamal app exec --reuse`) and records backlog (`ready` jobs) and dead-job
   (`failed` jobs) counts. Needs zero code added to the target Rails app —
-  Solid Queue's own model classes already exist — and zero new credentials,
-  since it reuses whatever SSH access you already have for `kamal deploy`
-  itself. Runs on its own, slower cadence than the GitHub Actions poll: an
-  SSH round-trip isn't free the way a GitHub API call is.
+  Solid Queue's own model classes already exist — and zero new credentials:
+  it reuses whatever SSH access you already have for `kamal deploy` itself
+  (same key, same agent — nothing owlook-specific to set up). Runs on its
+  own, slower cadence than the GitHub Actions poll: an SSH round-trip isn't
+  free the way a GitHub API call is.
+
+  Best-effort, not required: a project with no working SSH access still
+  gets CI status from GitHub Actions. When a destination's check fails, the
+  row isn't silently dropped — it's recorded with `state: "unreachable"`
+  and the real error, so the panel says *why* data is missing instead of
+  just not showing that destination. `systemctl --user`'s environment
+  doesn't inherit `SSH_AUTH_SOCK` from your desktop session, so
+  `Sources::Queue` also falls back to gpg-agent's SSH socket
+  (`$XDG_RUNTIME_DIR/gnupg/S.gpg-agent.ssh`, a fixed path, not something
+  that needs inheriting) when `SSH_AUTH_SOCK` isn't set. A
+  passphrase-protected key still needs to be unlocked in your agent at
+  least once (same as for any other use of it) — owlook never touches or
+  stores a passphrase.
 - State is unified into rows of three disjoint kinds, deduplicated so the
   most recently timestamped observation always wins for its identity, and
   written atomically to `$XDG_RUNTIME_DIR/owlook.json` — but **only when it
@@ -42,10 +56,11 @@ Built and covered by tests: config loading, the GitHub Actions source, the
 Kamal destination reader, the Solid Queue source, the unified store + state
 writer, the collector loop, and the systemd unit. The bar widget passes
 `omarchy plugin validate` and `qmllint`, but hasn't been installed in a live
-shell yet — see below before you enable it. The Solid Queue source hasn't
-been exercised against a real deployed server yet either — it's only been
-run against fakes in tests, deliberately, since the real thing means SSHing
-into and executing code on production.
+shell yet — see below before you enable it. The Solid Queue source has been
+verified against a real, currently-running multi-role Kamal deployment
+(both a staging and a production destination), not just fakes in tests —
+that live run is what surfaced the `SSH_AUTH_SOCK` fallback, the
+shell-escaping fix, and the multi-role output handling described above.
 
 Not built yet:
 

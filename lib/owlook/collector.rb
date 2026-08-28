@@ -96,21 +96,31 @@ module Owlook
       counts = @queue_source.status(project_path: path, destination: destination)
       log("#{project}@#{destination} queue: ready=#{counts[:ready]} failed=#{counts[:failed]}")
 
+      record_queue_observation(project, destination,
+        state: counts[:failed].positive? ? "failing" : "ok", details: counts)
+    rescue Sources::Queue::CommandFailedError => e
+      log("#{project}@#{destination} queue check failed: #{e.message}")
+      # A skipped row looks identical to one nobody's checked yet — the
+      # widget can't tell "SSH is broken" from "no data so far" without
+      # this. Truncated: a full stderr dump doesn't belong in the state file.
+      record_queue_observation(project, destination,
+        state: "unreachable", details: { error: e.message[0, 300] })
+    end
+
+    def record_queue_observation(project, destination, state:, details:)
       @store.record(Observation.new(
         project: project,
         kind: "queue",
         branch: nil,
         destination: destination,
         version: nil,
-        state: counts[:failed].positive? ? "failing" : "ok",
-        details: counts,
+        state: state,
+        details: details,
         timestamp: Time.now,
         author: nil,
         source: "kamal-exec",
         observed_at: Time.now
       ))
-    rescue Sources::Queue::CommandFailedError => e
-      log("#{project}@#{destination} queue check failed: #{e.message}")
     end
 
     def write_snapshot

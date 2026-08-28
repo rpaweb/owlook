@@ -2,7 +2,10 @@
 // No QML dependencies here so this can be unit tested with plain node/mjs
 // the same way Omarchy's own first-party widgets test their Model.js files.
 
-var BAD_STATES = { failure: true, timed_out: true, action_required: true, cancelled: true, failing: true }
+var BAD_STATES = {
+  failure: true, timed_out: true, action_required: true, cancelled: true,
+  failing: true, unreachable: true
+}
 
 function parseEntries(raw) {
   var text = String(raw || "").trim()
@@ -45,8 +48,25 @@ function stateLabel(state) {
     case "waiting": return "waiting"
     case "ok": return "ok"
     case "failing": return "failing"
+    case "unreachable": return "unreachable"
     default: return String(state || "unknown")
   }
+}
+
+// A queue row's `details` shape depends on its state: {ready, failed} on
+// success, {error} when the check itself failed (see Collector -
+// poll_destination_queue records "unreachable" rather than omitting the
+// row, so the panel can say why data is missing instead of just not
+// showing a destination at all).
+function queueDetailText(entry) {
+  if (!entry) return ""
+  if (entry.state === "unreachable") {
+    var error = (entry.details && entry.details.error) || "unknown error"
+    return "SSH unreachable — " + error
+  }
+  var details = entry.details || {}
+  return "ready " + (details.ready !== undefined ? details.ready : "?")
+    + " · failed " + (details.failed !== undefined ? details.failed : "?")
 }
 
 // A "ci" row is identified by branch, a "deploy"/"queue" row by destination
@@ -126,6 +146,7 @@ if (typeof module !== "undefined") {
     barText: barText,
     stateLabel: stateLabel,
     rowLocation: rowLocation,
+    queueDetailText: queueDetailText,
     relativeTime: relativeTime,
     groupByProject: groupByProject
   }

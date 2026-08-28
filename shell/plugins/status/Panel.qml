@@ -180,8 +180,7 @@ Panel {
                     bad: destBlock.modelData.queue ? Model.isBad(destBlock.modelData.queue.state) : false
                     label: "  queue"
                     detail: destBlock.modelData.queue
-                      ? ("ready " + destBlock.modelData.queue.details.ready
-                          + " · failed " + destBlock.modelData.queue.details.failed + " · "
+                      ? (Model.queueDetailText(destBlock.modelData.queue) + " · "
                           + Model.relativeTime(destBlock.modelData.queue.observed_at, root.nowMs))
                       : ""
                   }
