@@ -28,8 +28,11 @@ Panel {
 
   function tooltipText() {
     if (entries.length === 0) return "Owlook — waiting for the collector"
+    // entries counts rows (ci + queue + deploy), not distinct projects — a
+    // single project with two failing destinations is 2 rows, not 2
+    // projects, so "check(s)" rather than "project(s)".
     var bad = Model.badCount(entries)
-    return bad > 0 ? bad + " project(s) need attention" : entries.length + " project(s) passing"
+    return bad > 0 ? bad + " check(s) need attention" : entries.length + " check(s) passing"
   }
 
   function applyState(raw) {
@@ -86,7 +89,7 @@ Panel {
           PanelHero {
             width: parent.width
             title: "Owlook"
-            meta: root.entries.length + " project(s)"
+            meta: Model.groupByProject(root.entries).length + " project(s)"
             foreground: root.barForeground
             fontFamily: Style.font.family
 
