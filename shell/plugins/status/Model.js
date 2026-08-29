@@ -62,6 +62,7 @@ function stateLabel(state) {
     case "failing": return "failing"
     case "unreachable": return "unreachable"
     case "no_runs": return "no runs yet"
+    case "checking": return "checking…"
     default: return String(state || "unknown")
   }
 }
@@ -136,6 +137,11 @@ function ciRunRows(ciList) {
 // not "zero failures").
 function destBadgeLabel(entry) {
   if (!entry) return ""
+  // A destination the collector just discovered but hasn't checked over
+  // SSH yet (see Collector#announce_new_destinations) — real, honest
+  // state, not "0 failed" (which would claim a result that doesn't exist)
+  // and not silence (which reads as "nothing configured here").
+  if (entry.state === "checking") return "checking…"
   if (entry.state === "unreachable") return "unreachable"
   var details = entry.details || {}
   var failed = details.failed !== undefined ? details.failed : "?"
@@ -150,7 +156,7 @@ function destBadgeLabel(entry) {
 // oldest waiting job to report, and a dash there reads as broken rather
 // than as "not applicable".
 function destStats(entry) {
-  if (!entry || entry.state === "unreachable") return []
+  if (!entry || entry.state === "unreachable" || entry.state === "checking") return []
   var d = entry.details || {}
   var stats = []
   if (d.workers !== undefined) {

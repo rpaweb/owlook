@@ -467,6 +467,7 @@ Panel {
 
     readonly property var queueEntry: destRow.modelData.queue
     readonly property bool bad: destRow.queueEntry ? Model.isBad(destRow.queueEntry.state) : false
+    readonly property bool checking: destRow.queueEntry !== null && destRow.queueEntry.state === "checking"
     readonly property var stats: Model.destStats(destRow.queueEntry)
 
     width: ListView.view ? ListView.view.width : 0
@@ -529,10 +530,15 @@ Panel {
               id: destBadgeText
               anchors.centerIn: parent
               text: Model.destBadgeLabel(destRow.queueEntry)
-              color: destRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+              // Not bold, italic instead — a provisional status message
+              // ("checking…"), not a result, same visual language as the
+              // "no CI runs found" / "no Kamal destinations configured"
+              // messages elsewhere in this panel.
+              color: destRow.bad ? root.urgent : Qt.darker(root.barForeground, destRow.checking ? 1.6 : 1.15)
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
-              font.bold: true
+              font.bold: !destRow.checking
+              font.italic: destRow.checking
             }
           }
         }
