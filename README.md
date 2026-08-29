@@ -164,15 +164,20 @@ change the pinned Ruby version, re-run the installer and
 `OWLOOK_POLL_INTERVAL` (seconds, default `30`, GitHub Actions),
 `OWLOOK_QUEUE_POLL_INTERVAL` (seconds, default `60`, Solid Queue), and
 `OWLOOK_CONFIG` (default `~/.config/owlook/config.yml`) are read from the
-environment if you need to override them. Every queue-poll cycle logs how
-long it actually took (`journalctl --user -u owlook | grep "queue poll
-cycle"`) — measured live against timeline-rails (2 destinations,
-production + staging): ~22–24s per cycle, roughly 11s per destination,
-comfortably inside the 60s default. Destinations are checked one at a
-time, not in parallel, so that scales linearly — the default holds up to
-roughly 5 destinations across all your configured projects combined
-before a cycle risks running past its own interval; past that, raise
-`OWLOOK_QUEUE_POLL_INTERVAL`.
+environment if you need to override them. Every CI/queue-poll cycle
+records how long it actually took, per project — the panel shows it next
+to "CI —"/"QUEUES —" once that section's own loading spinner clears, and
+it's in the journal too (`journalctl --user -u owlook | grep "queue poll
+cycle"`). Measured live against timeline-rails (2 destinations,
+production + staging): steady-state is ~21–24s per cycle, roughly 11s per
+destination — but the very first cycle right after the collector starts
+can run much longer (68s in one observed run, past the 60s default
+itself) while SSH re-establishes a cold connection; it settles back to
+the steady-state range from the next cycle on. Destinations are checked
+one at a time, not in parallel, so steady-state scales linearly — the
+default holds up to roughly 5 destinations across all your configured
+projects combined before a cycle risks running past its own interval;
+past that, raise `OWLOOK_QUEUE_POLL_INTERVAL`.
 
 ## The bar widget
 

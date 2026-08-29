@@ -33,6 +33,26 @@ class Owlook::ObservationTest < Minitest::Test
     assert_equal ["acme/widgets", "queue", "production"], observation.key
   end
 
+  def test_key_for_a_ci_timing_observation_is_project_alone
+    observation = Owlook::Observation.new(
+      project: "acme/widgets", kind: "ci_timing", branch: nil, destination: nil,
+      version: nil, state: "ok", details: { duration_seconds: 0.9 }, timestamp: Time.now,
+      author: nil, source: "github", observed_at: Time.now
+    )
+
+    assert_equal ["acme/widgets", "ci_timing"], observation.key
+  end
+
+  def test_key_for_a_queue_timing_observation_is_project_alone
+    observation = Owlook::Observation.new(
+      project: "acme/widgets", kind: "queue_timing", branch: nil, destination: nil,
+      version: nil, state: "ok", details: { duration_seconds: 22.4 }, timestamp: Time.now,
+      author: nil, source: "kamal-exec", observed_at: Time.now
+    )
+
+    assert_equal ["acme/widgets", "queue_timing"], observation.key
+  end
+
   def test_key_raises_for_an_unknown_kind
     observation = Owlook::Observation.new(
       project: "acme/widgets", kind: "bogus", branch: "main", destination: nil,

@@ -30,8 +30,9 @@ class Owlook::CollectorTest < Minitest::Test
         collector.poll_ci_once
 
         on_disk = JSON.parse(File.read(state_path))
-        assert_equal 1, on_disk.size
-        entry = on_disk.first
+        ci_rows = on_disk.select { |e| e["kind"] == "ci" }
+        assert_equal 1, ci_rows.size
+        entry = ci_rows.first
         assert_equal "acme/widgets", entry["project"]
         assert_equal "ci", entry["kind"]
         assert_equal "main", entry["branch"]
@@ -43,6 +44,12 @@ class Owlook::CollectorTest < Minitest::Test
         # skipped jobs don't count against the total the way a failure
         # would — GitHub's own UI treats a run with only skips as green too.
         assert_equal({ "jobs_total" => 3, "jobs_passed" => 2, "jobs_skipped" => 1 }, entry["details"])
+
+        # A project-level "ci_timing" row rides along too — how long this
+        # cycle actually took (see Collector#record_timing).
+        timing = on_disk.find { |e| e["kind"] == "ci_timing" }
+        assert timing, "expected a ci_timing row"
+        assert_kind_of Numeric, timing["details"]["duration_seconds"]
       end
     end
   end
@@ -148,8 +155,7 @@ class Owlook::CollectorTest < Minitest::Test
         collector.poll_ci_once
 
         on_disk = JSON.parse(File.read(state_path))
-        assert_equal 1, on_disk.size
-        entry = on_disk.first
+        entry = on_disk.find { |e| e["kind"] == "ci" }
         assert_equal "acme/widgets", entry["project"]
         assert_equal "ci", entry["kind"]
         assert_equal "main", entry["branch"]
@@ -184,8 +190,9 @@ class Owlook::CollectorTest < Minitest::Test
         collector.poll_ci_once
 
         on_disk = JSON.parse(File.read(state_path))
-        assert_equal 1, on_disk.size
-        assert_equal "acme/widgets", on_disk.first["project"]
+        ci_rows = on_disk.select { |e| e["kind"] == "ci" }
+        assert_equal 1, ci_rows.size
+        assert_equal "acme/widgets", ci_rows.first["project"]
       end
     end
   end
@@ -208,10 +215,11 @@ class Owlook::CollectorTest < Minitest::Test
 
         collector.poll_queues_once
 
-        on_disk = JSON.parse(File.read(state_path)).sort_by { |e| e["destination"] }
-        assert_equal 2, on_disk.size
+        on_disk = JSON.parse(File.read(state_path))
+        queue_rows = on_disk.select { |e| e["kind"] == "queue" }.sort_by { |e| e["destination"] }
+        assert_equal 2, queue_rows.size
 
-        default_row, staging_row = on_disk
+        default_row, staging_row = queue_rows
         assert_equal "acme/widgets", default_row["project"]
         assert_equal "queue", default_row["kind"]
         assert_equal "ok", default_row["state"]
@@ -219,6 +227,12 @@ class Owlook::CollectorTest < Minitest::Test
 
         assert_equal "failing", staging_row["state"]
         assert_equal({ "ready" => 0, "failed" => 3 }, staging_row["details"])
+
+        # A project-level "queue_timing" row rides along too — how long
+        # this cycle actually took (see Collector#record_timing).
+        timing = on_disk.find { |e| e["kind"] == "queue_timing" }
+        assert timing, "expected a queue_timing row"
+        assert_kind_of Numeric, timing["details"]["duration_seconds"]
       end
     end
   end
@@ -301,6 +315,27 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # A project with zero Kamal destinations has nothing real to report a
+  # duration for — no queue_timing row, not one claiming 0.0s.
+  def test_poll_queues_once_records_no_timing_when_there_are_no_destinations
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new({})
+        )
+
+        collector.poll_queues_once
+
+        refute File.exist?(state_path), "nothing to report, nothing to write"
+      end
+    end
+  end
+
   # A project whose workflows are wired to more than one branch (master ->
   # production, staging -> staging) gets a CI row for each — the branch
   # checked out locally is no longer the only thing that decides what's
@@ -325,11 +360,11 @@ class Owlook::CollectorTest < Minitest::Test
 
         collector.poll_ci_once
 
-        on_disk = JSON.parse(File.read(state_path)).sort_by { |e| e["branch"] }
-        assert_equal 2, on_disk.size
-        assert_equal ["master", "staging"], on_disk.map { |e| e["branch"] }
-        assert_equal "success", on_disk.find { |e| e["branch"] == "master" }["state"]
-        assert_equal "failure", on_disk.find { |e| e["branch"] == "staging" }["state"]
+        ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }.sort_by { |e| e["branch"] }
+        assert_equal 2, ci_rows.size
+        assert_equal ["master", "staging"], ci_rows.map { |e| e["branch"] }
+        assert_equal "success", ci_rows.find { |e| e["branch"] == "master" }["state"]
+        assert_equal "failure", ci_rows.find { |e| e["branch"] == "staging" }["state"]
       end
     end
   end
@@ -356,9 +391,9 @@ class Owlook::CollectorTest < Minitest::Test
 
         collector.poll_ci_once
 
-        on_disk = JSON.parse(File.read(state_path))
-        assert_equal 1, on_disk.size
-        assert_equal "main", on_disk.first["branch"]
+        ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }
+        assert_equal 1, ci_rows.size
+        assert_equal "main", ci_rows.first["branch"]
       end
     end
   end
@@ -390,8 +425,8 @@ class Owlook::CollectorTest < Minitest::Test
 
         collector.poll_ci_once
 
-        on_disk = JSON.parse(File.read(state_path)).sort_by { |e| e["branch"] }
-        assert_equal ["dependabot/bundler/rails-8.1", "master"], on_disk.map { |e| e["branch"] }
+        ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }.sort_by { |e| e["branch"] }
+        assert_equal ["dependabot/bundler/rails-8.1", "master"], ci_rows.map { |e| e["branch"] }
       end
     end
   end
@@ -417,9 +452,9 @@ class Owlook::CollectorTest < Minitest::Test
 
         collector.poll_ci_once
 
-        on_disk = JSON.parse(File.read(state_path))
-        assert_equal 1, on_disk.size
-        assert_equal "staging", on_disk.first["branch"]
+        ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }
+        assert_equal 1, ci_rows.size
+        assert_equal "staging", ci_rows.first["branch"]
       end
     end
   end
@@ -442,10 +477,10 @@ class Owlook::CollectorTest < Minitest::Test
 
         collector.poll_queues_once
 
-        on_disk = JSON.parse(File.read(state_path)).sort_by { |e| e["destination"] }
-        assert_equal 2, on_disk.size
+        queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }.sort_by { |e| e["destination"] }
+        assert_equal 2, queue_rows.size
 
-        default_row, staging_row = on_disk
+        default_row, staging_row = queue_rows
         assert_equal "ok", default_row["state"]
 
         assert_equal "unreachable", staging_row["state"]
@@ -483,9 +518,9 @@ class Owlook::CollectorTest < Minitest::Test
         projects << project_path
         collector.poll_ci_once
 
-        on_disk = JSON.parse(File.read(state_path))
-        assert_equal 1, on_disk.size
-        assert_equal "acme/widgets", on_disk.first["project"]
+        ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }
+        assert_equal 1, ci_rows.size
+        assert_equal "acme/widgets", ci_rows.first["project"]
       end
     end
   end

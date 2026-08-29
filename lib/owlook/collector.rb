@@ -104,6 +104,7 @@ module Owlook
       repo = GitRepo.new(path)
       owner, name = repo.owner_and_repo
       project = "#{owner}/#{name}"
+      started = Time.now
 
       branches = branches_to_poll(path, repo, owner, name)
       # A branch the store has never seen gets an immediate "checking"
@@ -116,6 +117,10 @@ module Owlook
       write_snapshot
 
       branches.each { |branch| poll_branch_ci(owner, name, project, branch) }
+      # How long this project's CI actually took to resolve, start to
+      # finish — the widget shows this next to "CI — N tracked" once the
+      # section's own spinner clears, not before.
+      record_timing(project, "ci_timing", "github", Time.now - started)
       write_snapshot
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping #{path}: #{e.message}")
@@ -218,6 +223,29 @@ module Owlook
       ))
     end
 
+    # "ci_timing"/"queue_timing" — how long a project's most recent poll
+    # cycle actually took (see poll_project_ci / poll_project_queues).
+    # Always overwrites: project + kind is the whole key (Observation#key),
+    # so Store#record just keeps whichever cycle finished most recently —
+    # no "checking" placeholder needed here the way branches/destinations
+    # need one, since the widget hides a stale duration itself (Panel.qml
+    # only reads it once its section's own loading state has cleared).
+    def record_timing(project, kind, source, duration)
+      @store.record(Observation.new(
+        project: project,
+        kind: kind,
+        branch: nil,
+        destination: nil,
+        version: nil,
+        state: "ok",
+        details: { duration_seconds: duration.round(1) },
+        timestamp: Time.now,
+        author: nil,
+        source: source,
+        observed_at: Time.now
+      ))
+    end
+
     # GitHub's own UI treats a run with only skipped jobs as green, not as
     # partially failed — skips don't count against the total the way a
     # failure would. jobs_passed + jobs_skipped can be less than jobs_total
@@ -235,6 +263,7 @@ module Owlook
       repo = GitRepo.new(path)
       owner, name = repo.owner_and_repo
       project = "#{owner}/#{name}"
+      started = Time.now
 
       destinations = @kamal_source.destinations(path)
       # A destination the store has never seen gets a "checking" row the
@@ -251,6 +280,9 @@ module Owlook
       write_snapshot
 
       destinations.each { |destination| poll_destination_queue(path, project, destination) }
+      # Only when there was something to time — a project with zero
+      # destinations has nothing real to report a duration for.
+      record_timing(project, "queue_timing", "kamal-exec", Time.now - started) if destinations.any?
       write_snapshot
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping queues for #{path}: #{e.message}")
