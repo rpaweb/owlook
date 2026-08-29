@@ -27,6 +27,18 @@ module Owlook
       @entries.key?(key)
     end
 
+    # Removes every stored observation of the given kind. Normal polling
+    # only ever adds or replaces, never deletes — this exists for the one
+    # case where an entire kind needs to start over: the widget's "all
+    # branches" toggle flipping means the set of branches CI could ever
+    # report on has genuinely changed, and a branch no longer in that set
+    # (say, a dependabot branch after switching back off) would otherwise
+    # sit in the state file forever with nothing else to prune it. See
+    # Collector#sync_all_branches_setting.
+    def forget_kind(kind)
+      @entries.reject! { |key, _observation| key[1] == kind }
+    end
+
     def snapshot
       @entries.values.map(&:to_h)
     end

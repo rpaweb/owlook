@@ -459,6 +459,47 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # Flipping the toggle back off must not leave a dependabot branch it
+  # discovered sitting in the state file forever — nothing else ever
+  # prunes a Store entry, so Collector has to forget and re-announce.
+  def test_poll_ci_once_forgets_branches_no_longer_relevant_when_all_branches_setting_changes
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          {
+            ["acme", "widgets", "master"] => { head_sha: "aaa111", status: "completed", conclusion: "success",
+              updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
+            ["acme", "widgets", "dependabot/bundler/rails-8.1"] => { head_sha: "ccc333", status: "completed",
+              conclusion: "success", updated_at: "2026-08-26T12:10:00Z", actor: "dependabot[bot]" }
+          },
+          { ["acme", "widgets"] => ["master", "dependabot/bundler/rails-8.1"] }
+        )
+        all_branches = false
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source,
+          workflows_source: FakeWorkflowsSource.new(project_path => ["master"]),
+          settings_loader: -> { FakeSettings.new(all_branches: all_branches) }
+        )
+
+        collector.poll_ci_once
+        assert_equal ["master"], ci_branches(state_path)
+
+        all_branches = true
+        collector.poll_ci_once
+        assert_equal ["dependabot/bundler/rails-8.1", "master"], ci_branches(state_path)
+
+        all_branches = false
+        collector.poll_ci_once
+        assert_equal ["master"], ci_branches(state_path),
+          "the dependabot branch should be forgotten, not left over from all-branches mode"
+      end
+    end
+  end
+
   # A silently-skipped destination looks identical to one nobody's checked
   # yet — the widget can't tell "SSH is broken" from "no data so far". Record
   # what happened instead of omitting the row.
@@ -558,6 +599,10 @@ class Owlook::CollectorTest < Minitest::Test
   end
 
   private
+
+  def ci_branches(state_path)
+    JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }.map { |e| e["branch"] }.sort
+  end
 
   # writer's path is never touched — none of the tests that use this write
   # a snapshot (StateWriter only hits disk inside #write), so there's no

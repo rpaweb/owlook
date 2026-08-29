@@ -41,9 +41,11 @@ module Owlook
       @settings_loader = settings_loader
       @sleeper = sleeper
       @logger = logger
+      @known_all_branches = nil
     end
 
     def poll_ci_once
+      sync_all_branches_setting
       projects.each { |path| poll_project_ci(path) }
     end
 
@@ -88,6 +90,25 @@ module Owlook
         elapsed += step
         break if @settings_loader.call.all_branches? != baseline
       end
+    end
+
+    # When the widget's "all branches" toggle flips, every CI row across
+    # every project gets forgotten so the next poll re-announces from
+    # scratch under the new mode — the same "checking" -> spinner ->
+    # real-data sequence a first-ever poll goes through, because the
+    # visible branch set has genuinely changed underneath it, not just
+    # grown or shrunk unnoticed. Without this, switching "all branches"
+    # back off would leave every dependabot/renovate branch it discovered
+    # sitting in the state file forever — nothing else ever prunes a
+    # Store entry. @known_all_branches starts as nil (neither true nor
+    # false), so the very first call always "changes" too — harmless,
+    # since there's nothing in the Store yet to forget.
+    def sync_all_branches_setting
+      current = @settings_loader.call.all_branches?
+      return if current == @known_all_branches
+
+      @store.forget_kind("ci") unless @known_all_branches.nil?
+      @known_all_branches = current
     end
 
     # A config edit caught mid-write (or briefly invalid YAML) shouldn't

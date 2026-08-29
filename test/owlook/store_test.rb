@@ -75,6 +75,27 @@ class Owlook::StoreTest < Minitest::Test
     assert store.known?(observation.key)
   end
 
+  def test_forget_kind_removes_only_observations_of_that_kind
+    store = Owlook::Store.new
+    store.record(ci_observation(branch: "main", timestamp: Time.at(100)))
+    store.record(ci_observation(branch: "staging", timestamp: Time.at(100)))
+    store.record(deploy_observation(destination: "production", timestamp: Time.at(100)))
+
+    store.forget_kind("ci")
+
+    kinds = store.snapshot.map { |e| e[:kind] }
+    assert_equal ["deploy"], kinds
+  end
+
+  def test_forget_kind_is_a_no_op_when_nothing_of_that_kind_exists
+    store = Owlook::Store.new
+    store.record(deploy_observation(destination: "production", timestamp: Time.at(100)))
+
+    store.forget_kind("ci")
+
+    assert_equal 1, store.snapshot.size
+  end
+
   def test_snapshot_entries_are_plain_hashes
     store = Owlook::Store.new
     store.record(ci_observation(branch: "main", timestamp: Time.at(100)))
