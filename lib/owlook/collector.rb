@@ -23,10 +23,14 @@ module Owlook
     # not a static Config — called fresh on every poll rather than once at
     # construction, so editing config.yml takes effect on the next cycle
     # (well within 30s) instead of needing a systemd restart.
+    # sleeper is injectable (real default: Kernel#sleep) purely so
+    # #wait_for_next_poll is testable without an actual test waiting out a
+    # real interval — see its own comment.
     def initialize(config_loader:, store:, writer:, github_source:,
       kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new,
       workflows_source: Sources::Workflows.new,
-      settings_loader: -> { WidgetSettings.load }, logger: nil)
+      settings_loader: -> { WidgetSettings.load },
+      sleeper: ->(seconds) { sleep(seconds) }, logger: nil)
       @config_loader = config_loader
       @store = store
       @writer = writer
@@ -35,6 +39,7 @@ module Owlook
       @queue_source = queue_source
       @workflows_source = workflows_source
       @settings_loader = settings_loader
+      @sleeper = sleeper
       @logger = logger
     end
 
@@ -56,11 +61,29 @@ module Owlook
           poll_queues_once
           next_queue_check = Time.now + queue_interval
         end
-        sleep ci_interval
+        wait_for_next_poll(ci_interval)
       end
     end
 
     private
+
+    # Sleeps in short ticks instead of one flat call for the whole
+    # interval, so flipping the widget's "all branches" toggle (written to
+    # shell.json — see WidgetSettings) takes effect within about a second
+    # instead of waiting out the rest of a 30s interval. A config.yml edit
+    # is made ahead of time with nobody watching, so a slow reload there
+    # is fine; a toggle is clicked with the panel open, and nothing
+    # visibly happening for up to 30s reads as broken.
+    def wait_for_next_poll(ci_interval, tick: 1)
+      baseline = @settings_loader.call.all_branches?
+      elapsed = 0
+      while elapsed < ci_interval
+        step = [tick, ci_interval - elapsed].min
+        @sleeper.call(step)
+        elapsed += step
+        break if @settings_loader.call.all_branches? != baseline
+      end
+    end
 
     # A config edit caught mid-write (or briefly invalid YAML) shouldn't
     # crash the loop — skip this one cycle's projects and try again next
