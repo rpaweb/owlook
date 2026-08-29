@@ -47,6 +47,89 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # A branch the store has never seen gets an immediate "checking" row,
+  # written before the real GitHub calls even start — same reason
+  # poll_queues_once announces a destination before its real check. GitHub
+  # Actions is fast, but a project's tab shouldn't say "no CI runs found"
+  # for however briefly it takes to find out otherwise.
+  def test_poll_ci_once_writes_a_checking_placeholder_before_the_real_check_completes
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      writer = RecordingWriter.new
+      github_source = FakeGithubSource.new(
+        ["acme", "widgets", "main"] => { head_sha: "abc123", status: "completed", conclusion: "success",
+          updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+      )
+      collector = Owlook::Collector.new(
+        config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+        store: Owlook::Store.new,
+        writer: writer,
+        github_source: github_source
+      )
+
+      collector.poll_ci_once
+
+      checking_writes = writer.snapshots.select { |snap| snap.any? { |row| row[:state] == "checking" } }
+      assert_equal 1, checking_writes.size, "expected exactly one write with a checking placeholder"
+
+      final = writer.snapshots.last
+      assert_equal "success", final.find { |row| row[:branch] == "main" }[:state]
+    end
+  end
+
+  def test_poll_ci_once_does_not_reannounce_an_already_known_branch
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      writer = RecordingWriter.new
+      github_source = FakeGithubSource.new(
+        ["acme", "widgets", "main"] => { head_sha: "abc123", status: "completed", conclusion: "success",
+          updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+      )
+      collector = Owlook::Collector.new(
+        config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+        store: Owlook::Store.new,
+        writer: writer,
+        github_source: github_source
+      )
+
+      collector.poll_ci_once
+      collector.poll_ci_once
+
+      checking_writes = writer.snapshots.select { |snap| snap.any? { |row| row[:state] == "checking" } }
+      assert_equal 1, checking_writes.size, "a known branch should never be reset to checking"
+    end
+  end
+
+  # Regression: the checking placeholder used to stamp `timestamp: Time.now`.
+  # A real run's timestamp is GitHub's own updated_at — the underlying
+  # event's time, not "when the collector saw it" — which is very often
+  # older than "right now" (nobody's pushed to this branch in days). Store
+  # only keeps whichever observation has the newer timestamp, so a
+  # placeholder stamped "now" would outrank a real-but-old run and never
+  # get replaced.
+  def test_poll_ci_once_replaces_the_checking_placeholder_even_when_the_real_run_is_old
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          ["acme", "widgets", "main"] => { head_sha: "abc123", status: "completed", conclusion: "success",
+            updated_at: "2020-01-01T00:00:00Z", actor: "rafael" } # years old, well before "now"
+        )
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source
+        )
+
+        collector.poll_ci_once
+
+        on_disk = JSON.parse(File.read(state_path))
+        entry = on_disk.find { |row| row["branch"] == "main" }
+        assert_equal "success", entry["state"]
+        assert_equal "abc123", entry["version"]
+      end
+    end
+  end
+
   # A project with no Actions runs yet still gets a row — not a silent
   # skip. Otherwise it has no CI row and (usually) no queue row either, so
   # it's invisible to the widget: no tab, no "0 tracked", nothing to

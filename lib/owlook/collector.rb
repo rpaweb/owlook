@@ -45,7 +45,6 @@ module Owlook
 
     def poll_ci_once
       projects.each { |path| poll_project_ci(path) }
-      write_snapshot
     end
 
     def poll_queues_once
@@ -99,9 +98,59 @@ module Owlook
       owner, name = repo.owner_and_repo
       project = "#{owner}/#{name}"
 
-      branches_to_poll(path, repo, owner, name).each { |branch| poll_branch_ci(owner, name, project, branch) }
+      branches = branches_to_poll(path, repo, owner, name)
+      # A branch the store has never seen gets an immediate "checking"
+      # row, the same reason poll_project_queues announces a destination
+      # before its real check — GitHub Actions is fast, but "fast" still
+      # isn't instant, and the gap between the tab existing and its CI
+      # data landing would otherwise render as "no CI runs found", which
+      # isn't true yet. Written before the real per-branch GitHub calls.
+      announce_new_ci_branches(project, branches)
+      write_snapshot
+
+      branches.each { |branch| poll_branch_ci(owner, name, project, branch) }
+      write_snapshot
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping #{path}: #{e.message}")
+    end
+
+    def announce_new_ci_branches(project, branches)
+      branches.each do |branch|
+        pending = pending_ci_observation(project, branch)
+        # Same rule as queues: only for a branch the store has no data
+        # for at all. A known branch keeps whatever it last reported
+        # until the real check replaces it — re-announcing it as
+        # "checking" every cycle would flash real results back to
+        # loading every 30s.
+        next if @store.known?(pending.key)
+
+        @store.record(pending)
+      end
+    end
+
+    def pending_ci_observation(project, branch)
+      Observation.new(
+        project: project,
+        kind: "ci",
+        branch: branch,
+        destination: nil,
+        version: nil,
+        state: "checking",
+        details: {},
+        # Epoch, not Time.now: a real CI observation's timestamp is the
+        # GitHub run's own updated_at (when the underlying event actually
+        # happened), which can easily be older than "right now" — a
+        # branch nobody's pushed to in days still has a real, old
+        # updated_at. Store#record keeps whichever timestamp is newer, so
+        # a placeholder stamped "now" would sometimes outrank real data
+        # and never get replaced. A placeholder should always lose,
+        # unconditionally, to whatever real observation eventually shows
+        # up — the oldest possible timestamp guarantees that.
+        timestamp: Time.at(0),
+        author: nil,
+        source: "github",
+        observed_at: Time.now
+      )
     end
 
     # Two modes, chosen by the widget's own settings toggle (gear icon in
@@ -223,7 +272,12 @@ module Owlook
         version: nil,
         state: "checking",
         details: {},
-        timestamp: Time.now,
+        # Epoch, not Time.now — see pending_ci_observation's comment. The
+        # real queue check also happens to stamp Time.now today, so this
+        # isn't live yet as a bug here specifically, but a placeholder
+        # should never depend on the real observation's timestamp
+        # semantics staying that way to be superseded correctly.
+        timestamp: Time.at(0),
         author: nil,
         source: "kamal-exec",
         observed_at: Time.now
