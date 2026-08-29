@@ -105,6 +105,15 @@ Not built yet:
   turns out to be needed; not planned as a stub.
 - **Notifications** on state change.
 
+Open architecture question, not yet decided: **GitHub is the only Git host
+owlook knows about.** `Sources::GitHub`, `GithubClient`, and `GitRepo`'s
+`github.com`-remote matching are all GitHub-specific — nothing abstracts "a
+place with CI status for a repo" behind a swappable interface, so GitLab CI,
+Bitbucket Pipelines, or a self-hosted instance of either aren't supported
+and can't be bolted on without deciding that shape first (a `Sources::CI`
+interface with GitHub as the first adapter, most likely) — not a small
+refactor once GitHub-specific assumptions are baked further into Collector.
+
 Explicitly out of scope for v1, not planned as stubs: Kamal hooks / SSH
 reconciliation (`kamal app version`), a `.desktop`/launcher generator, any
 plugin-authoring SDK or public API, Waybar or Omarchy 3.x support. One gem,
