@@ -24,6 +24,21 @@ Panel {
 
   property var anchorItem: null
   property int activeTabIndex: 0
+  property bool showingSettings: false
+
+  // "All branches" persists into Omarchy's shared shell.json (the same
+  // file the bar's own layout editor writes to) rather than a second
+  // settings channel between this process and the collector's — see
+  // Owlook::WidgetSettings, which reads the identical entry.
+  function toggleAllBranchesSetting() {
+    var entry = { id: root.moduleName }
+    for (var existing in root.settings) if (existing !== "id") entry[existing] = root.settings[existing]
+    entry.allBranches = !root.setting("allBranches", false)
+
+    root.settings = entry
+    if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
+      root.bar.shell.updateEntryInline(root.moduleName, entry)
+  }
 
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
@@ -93,17 +108,43 @@ Panel {
         width: parent.width
         spacing: Style.space(10)
 
-        PanelHero {
+        Item {
+          id: heroBlock
           width: parent.width
-          title: "OWLOOK"
-          meta: Model.projectCountLabel(root.projects.length)
-          foreground: root.barForeground
-          fontFamily: Style.font.family
+          implicitHeight: hero.implicitHeight
 
-          iconComponent: Component {
-            Text {
-              text: "🦉"
-              font.pixelSize: Style.font.display
+          property bool settingsOpen: root.showingSettings
+          function toggleSettings() { root.showingSettings = !root.showingSettings }
+
+          PanelHero {
+            id: hero
+            width: parent.width
+            title: "OWLOOK"
+            meta: Model.projectCountLabel(root.projects.length)
+            foreground: root.barForeground
+            fontFamily: Style.font.family
+
+            iconComponent: Component {
+              Text {
+                text: "🦉"
+                font.pixelSize: Style.font.display
+              }
+            }
+
+            // heroBlock, not root: a Component assigned to trailingControl
+            // is instantiated inside PanelHero's own item tree, where an
+            // unqualified `root` resolves to PanelHero's *own* internal
+            // `id: root` rather than this file's — the same gotcha the
+            // tailscale/dropbox panels work around by reaching through a
+            // distinctly-named sibling instead.
+            trailingControl: Component {
+              PanelActionButton {
+                iconText: "⚙"
+                tooltipText: heroBlock.settingsOpen ? "Back" : "Settings"
+                foreground: hero.foreground
+                fontFamily: hero.fontFamily
+                onClicked: heroBlock.toggleSettings()
+              }
             }
           }
         }
@@ -114,7 +155,7 @@ Panel {
         }
 
         Text {
-          visible: root.entries.length === 0
+          visible: !root.showingSettings && root.entries.length === 0
           width: parent.width
           text: "No data yet — is the collector running?"
           color: Qt.darker(root.barForeground, 1.4)
@@ -129,7 +170,7 @@ Panel {
         // scroll strip with no cue reads as "that's everything".
         ListView {
           id: tabsList
-          visible: root.projects.length > 0
+          visible: !root.showingSettings && root.projects.length > 0
           width: parent.width
           height: visible ? implicitHeight : 0
           implicitHeight: Style.space(26)
@@ -153,7 +194,7 @@ Panel {
       // header down to the panel's bottom edge.
       Item {
         id: body
-        visible: root.activeProject !== null
+        visible: !root.showingSettings && root.activeProject !== null
         anchors.top: header.bottom
         anchors.topMargin: Style.space(10)
         anchors.left: parent.left
@@ -281,6 +322,38 @@ Panel {
               width: Style.space(3)
             }
           }
+        }
+      }
+
+      // Settings — opened via the gear icon in the hero, currently a
+      // single toggle. Swaps into the same fixed space tabs+body use
+      // rather than adding a new region, so the panel's outer size stays
+      // untouched by how many settings this grows to later. Plain Column,
+      // not scrollable yet: one row fits the body's height with room to
+      // spare — worth revisiting once a second or third setting lands.
+      Column {
+        id: settingsView
+        visible: root.showingSettings
+        anchors.top: header.bottom
+        anchors.topMargin: Style.space(10)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        spacing: Style.space(10)
+
+        PanelSectionHeader {
+          text: "SETTINGS"
+          foreground: root.barForeground
+        }
+
+        Toggle {
+          width: parent.width
+          label: "All branches"
+          description: "Track every branch with a recent CI run, dependabot included — not just the ones tied to an environment (master, staging, …)."
+          checked: root.setting("allBranches", false)
+          foreground: root.barForeground
+          accent: Color.accent
+          fontFamily: Style.font.family
+          onClicked: root.toggleAllBranchesSetting()
         }
       }
     }
