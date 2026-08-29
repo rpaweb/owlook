@@ -164,6 +164,17 @@ Installing or enabling anything in the live Quattro shell runs arbitrary
 code inside your long-lived `omarchy-shell` process — read the plugin before
 you enable it, same as Omarchy's own warning for third-party plugins.
 
+**Settings**: the gear icon in the panel's header opens a small settings
+view — today, one toggle. **All branches** switches from the default
+(only branches a push-triggered workflow actually runs on — see
+`Sources::Workflows` above) to every branch with a recent CI run,
+dependabot/renovate included. It persists into Omarchy's own
+`~/.config/omarchy/shell.json` (the same file the bar's layout editor
+writes to, via `bar.shell.updateEntryInline`) rather than a new settings
+channel between the widget and the collector — `Owlook::WidgetSettings`
+reads that same entry, re-checked on every poll, so flipping the toggle
+takes effect on the collector's next cycle with no restart needed.
+
 ## Development
 
 ```bash

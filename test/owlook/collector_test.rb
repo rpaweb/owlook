@@ -9,7 +9,7 @@ class Owlook::CollectorTest < Minitest::Test
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
-        github_source = FakeGithubSource.new(
+        github_source = FakeGithubSource.new({
           ["acme", "widgets", "main"] => {
             head_sha: "abc123", status: "completed", conclusion: "success",
             updated_at: "2026-08-26T12:00:00Z", actor: "rafael",
@@ -19,7 +19,7 @@ class Owlook::CollectorTest < Minitest::Test
               { name: "deploy", status: "completed", conclusion: "skipped", steps: [] }
             ]
           }
-        )
+        })
         collector = Owlook::Collector.new(
           config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
           store: Owlook::Store.new,
@@ -202,6 +202,67 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # With the widget's "all branches" setting on, every branch with a
+  # recent run is polled — dependabot included — instead of only the ones
+  # a push-triggered workflow names.
+  def test_poll_ci_once_polls_every_branch_with_a_run_when_all_branches_setting_is_on
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          {
+            ["acme", "widgets", "master"] => { head_sha: "aaa111", status: "completed", conclusion: "success",
+              updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
+            ["acme", "widgets", "dependabot/bundler/rails-8.1"] => { head_sha: "ccc333", status: "completed",
+              conclusion: "success", updated_at: "2026-08-26T12:10:00Z", actor: "dependabot[bot]" }
+          },
+          { ["acme", "widgets"] => ["master", "dependabot/bundler/rails-8.1"] }
+        )
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source,
+          workflows_source: FakeWorkflowsSource.new(project_path => ["master", "staging"]),
+          settings_loader: -> { FakeSettings.new(all_branches: true) }
+        )
+
+        collector.poll_ci_once
+
+        on_disk = JSON.parse(File.read(state_path)).sort_by { |e| e["branch"] }
+        assert_equal ["dependabot/bundler/rails-8.1", "master"], on_disk.map { |e| e["branch"] }
+      end
+    end
+  end
+
+  # The setting being on doesn't help when GitHub has no run history at
+  # all yet — falls back the same way the default mode does.
+  def test_poll_ci_once_falls_back_when_all_branches_setting_is_on_but_nothing_has_ever_run
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          ["acme", "widgets", "staging"] => { head_sha: "bbb222", status: "completed", conclusion: "success",
+            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        )
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source,
+          workflows_source: FakeWorkflowsSource.new(project_path => ["staging"]),
+          settings_loader: -> { FakeSettings.new(all_branches: true) }
+        )
+
+        collector.poll_ci_once
+
+        on_disk = JSON.parse(File.read(state_path))
+        assert_equal 1, on_disk.size
+        assert_equal "staging", on_disk.first["branch"]
+      end
+    end
+  end
+
   # A silently-skipped destination looks identical to one nobody's checked
   # yet — the widget can't tell "SSH is broken" from "no data so far". Record
   # what happened instead of omitting the row.
@@ -293,14 +354,25 @@ class Owlook::CollectorTest < Minitest::Test
 
   # Routes latest_run(owner:, repo:, branch:) to canned results, keyed by
   # [owner, repo, branch]. Missing key means "no runs" (nil), matching the
-  # real Sources::GitHub contract.
+  # real Sources::GitHub contract. branches_with_runs is routed separately,
+  # keyed by [owner, repo], defaulting to [] (unstubbed = no recent runs).
   class FakeGithubSource
-    def initialize(routes)
+    # branch_routes is a plain trailing positional (not a keyword) so a
+    # bare `["a", "b", "c"] => {...}` hash-rocket list at a call site still
+    # collects into `routes` the old, brace-free way — a keyword parameter
+    # here would make Ruby treat that trailing list as keyword arguments
+    # instead once one is present, breaking every existing call site.
+    def initialize(routes, branch_routes = {})
       @routes = routes
+      @branch_routes = branch_routes
     end
 
     def latest_run(owner:, repo:, branch:)
       @routes[[owner, repo, branch]]
+    end
+
+    def branches_with_runs(owner:, repo:, limit: 100)
+      @branch_routes.fetch([owner, repo], [])
     end
   end
 
@@ -324,6 +396,12 @@ class Owlook::CollectorTest < Minitest::Test
 
     def branches(project_path)
       @routes.fetch(project_path, [])
+    end
+  end
+
+  FakeSettings = Struct.new(:all_branches, keyword_init: true) do
+    def all_branches?
+      !!all_branches
     end
   end
 

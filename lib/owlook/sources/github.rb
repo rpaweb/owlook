@@ -10,6 +10,19 @@ module Owlook
         @client = client
       end
 
+      # Every distinct branch with a run in the most recent `limit` — no
+      # jobs, no per-branch call, just enough to answer "what's been
+      # running CI lately" in one request. This is the "all branches"
+      # mode's data source (see Owlook::WidgetSettings#all_branches?):
+      # unlike Sources::Workflows, it doesn't care whether a branch is
+      # wired to a deploy — a dependabot branch that merely triggered a
+      # pull_request-shaped workflow shows up here too, which is exactly
+      # the point when the user has opted into seeing it.
+      def branches_with_runs(owner:, repo:, limit: 100)
+        runs = @client.get("/repos/#{owner}/#{repo}/actions/runs?per_page=#{limit}").fetch("workflow_runs")
+        runs.map { |run| run["head_branch"] }.compact.uniq
+      end
+
       def latest_run(owner:, repo:, branch:)
         run = @client.get("/repos/#{owner}/#{repo}/actions/runs?branch=#{branch}&per_page=1")
           .fetch("workflow_runs").first

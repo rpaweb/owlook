@@ -25,7 +25,8 @@ module Owlook
     # (well within 30s) instead of needing a systemd restart.
     def initialize(config_loader:, store:, writer:, github_source:,
       kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new,
-      workflows_source: Sources::Workflows.new, logger: nil)
+      workflows_source: Sources::Workflows.new,
+      settings_loader: -> { WidgetSettings.load }, logger: nil)
       @config_loader = config_loader
       @store = store
       @writer = writer
@@ -33,6 +34,7 @@ module Owlook
       @kamal_source = kamal_source
       @queue_source = queue_source
       @workflows_source = workflows_source
+      @settings_loader = settings_loader
       @logger = logger
     end
 
@@ -75,22 +77,31 @@ module Owlook
       owner, name = repo.owner_and_repo
       project = "#{owner}/#{name}"
 
-      branches_to_poll(path, repo).each { |branch| poll_branch_ci(owner, name, project, branch) }
+      branches_to_poll(path, repo, owner, name).each { |branch| poll_branch_ci(owner, name, project, branch) }
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping #{path}: #{e.message}")
     end
 
-    # Branches wired to a push-triggered workflow (master, staging, …) —
-    # read locally from .github/workflows/*.yml, the same reason
-    # Sources::Kamal reads config/deploy*.yml locally instead of asking an
-    # API: it's free, and a workflow that runs `on: push: branches: [...]`
-    # is the actual source of truth for "CI is wired to this branch",
-    # unlike run history (which also surfaces every dependabot/renovate
-    # branch that merely triggered a `pull_request`-only workflow —
-    # confirmed noisy against a real repo). Falls back to whatever's
-    # checked out locally when a project has no push-triggered workflow at
-    # all (PR-only CI, or none yet), so it isn't silently left untracked.
-    def branches_to_poll(path, repo)
+    # Two modes, chosen by the widget's own settings toggle (gear icon in
+    # the panel — see WidgetSettings#all_branches? and Panel.qml). Off
+    # (default): branches wired to a push-triggered workflow (master,
+    # staging, …) — read locally from .github/workflows/*.yml, the same
+    # reason Sources::Kamal reads config/deploy*.yml locally instead of
+    # asking an API: it's free, and a workflow that runs
+    # `on: push: branches: [...]` is the actual source of truth for "CI is
+    # wired to this branch", unlike run history (which also surfaces every
+    # dependabot/renovate branch that merely triggered a `pull_request`-only
+    # workflow — confirmed noisy against a real repo). On: every branch
+    # with a recent run, dependabot included — a GitHub API call, since
+    # that's not something the local checkout can answer. Either mode falls
+    # back to whatever's checked out locally when it finds nothing, so a
+    # project isn't silently left untracked.
+    def branches_to_poll(path, repo, owner, name)
+      if @settings_loader.call.all_branches?
+        broad = @github_source.branches_with_runs(owner: owner, repo: name)
+        return broad if broad.any?
+      end
+
       branches = @workflows_source.branches(path)
       branches.any? ? branches : [repo.current_branch]
     end

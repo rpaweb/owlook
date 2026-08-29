@@ -60,6 +60,36 @@ class Owlook::Sources::GitHubTest < Minitest::Test
     assert_equal({ name: "Run tests", number: 2, status: "completed", conclusion: "failure" }, job[:steps][1])
   end
 
+  def test_branches_with_runs_returns_distinct_branch_names
+    client = FakeClient.new(
+      "/repos/acme/widgets/actions/runs?per_page=100" => { "workflow_runs" => [
+        { "head_branch" => "master" },
+        { "head_branch" => "dependabot/bundler/rails-8.1" },
+        { "head_branch" => "master" }
+      ] }
+    )
+    source = Owlook::Sources::GitHub.new(client: client)
+
+    assert_equal ["master", "dependabot/bundler/rails-8.1"],
+      source.branches_with_runs(owner: "acme", repo: "widgets")
+  end
+
+  def test_branches_with_runs_respects_a_custom_limit
+    client = FakeClient.new(
+      "/repos/acme/widgets/actions/runs?per_page=5" => { "workflow_runs" => [{ "head_branch" => "master" }] }
+    )
+    source = Owlook::Sources::GitHub.new(client: client)
+
+    assert_equal ["master"], source.branches_with_runs(owner: "acme", repo: "widgets", limit: 5)
+  end
+
+  def test_branches_with_runs_is_empty_when_there_are_no_runs
+    client = FakeClient.new("/repos/acme/widgets/actions/runs?per_page=100" => { "workflow_runs" => [] })
+    source = Owlook::Sources::GitHub.new(client: client)
+
+    assert_equal [], source.branches_with_runs(owner: "acme", repo: "widgets")
+  end
+
   def test_latest_run_returns_nil_when_there_are_no_runs
     client = FakeClient.new(
       "/repos/acme/widgets/actions/runs?branch=quattro&per_page=1" => { "workflow_runs" => [] }
