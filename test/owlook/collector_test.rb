@@ -223,6 +223,33 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # OWLOOK_QUEUE_POLL_INTERVAL's default was picked as an estimate, never
+  # measured against a real server (see README) — this is what makes that
+  # measurable without guessing: the actual cycle duration lands in the
+  # journal every time.
+  def test_poll_queues_once_logs_how_long_the_cycle_took
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        logged = []
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new(project_path => ["default"]),
+          queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 }),
+          logger: ->(message) { logged << message }
+        )
+
+        collector.poll_queues_once
+
+        assert logged.any? { |m| m.match?(/queue poll cycle finished in \d+(\.\d+)?s/) },
+          "expected a cycle-duration log line, got: #{logged.inspect}"
+      end
+    end
+  end
+
   # A destination the store has never seen before gets an immediate
   # "checking" row, written before the (slow, SSH-based) real check even
   # starts — otherwise the very first thing a freshly-started collector

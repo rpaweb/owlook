@@ -47,8 +47,15 @@ module Owlook
       projects.each { |path| poll_project_ci(path) }
     end
 
+    # Logs how long a full cycle actually takes — the queue interval is an
+    # SSH round-trip per destination, real network time, not a free API
+    # call like the CI interval; OWLOOK_QUEUE_POLL_INTERVAL's default was
+    # picked as an estimate, never measured against a real server. This is
+    # what makes that measurable: run it live and read the journal.
     def poll_queues_once
+      started = Time.now
       projects.each { |path| poll_project_queues(path) }
+      log("queue poll cycle finished in #{(Time.now - started).round(1)}s")
     end
 
     def run(ci_interval:, queue_interval:)
