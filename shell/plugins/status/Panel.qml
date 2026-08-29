@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -8,19 +9,35 @@ import "Model.js" as Model
 // Reads $XDG_RUNTIME_DIR/owlook.json (written by the owlook collector) via
 // FileView with watchChanges: true — no polling, no process spawned by this
 // widget. See Owlook::StateWriter for the write side.
+//
+// Layout: one tab per project (a fixed-size 340×456 panel doesn't have room
+// to show every project's CI and queues at once — see the design notes in
+// the mockup this was ported from). Below the tab strip, CI and QUEUES are
+// two independently-scrolling regions rather than one growing panel: CI has
+// a fixed height, QUEUES fills whatever's left down to the bottom edge. The
+// panel's outer size never changes, no matter which tab is open or how much
+// a project has to show — only the two inner regions scroll.
 Panel {
   id: root
   moduleName: "owlook.status"
   manageIpc: false
 
   property var anchorItem: null
+  property int activeTabIndex: 0
 
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
   readonly property string statePath: runtimeDir + "/owlook.json"
 
   property var entries: []
-  property double nowMs: Date.now()
+
+  readonly property var projects: Model.groupByProject(root.entries)
+  // Clamped rather than trusted as-is: if a project disappears from the
+  // config between polls, a stale index would otherwise point past the end
+  // of a shorter list.
+  readonly property int activeIndex: projects.length === 0 ? 0
+    : Math.max(0, Math.min(root.activeTabIndex, projects.length - 1))
+  readonly property var activeProject: projects.length > 0 ? projects[root.activeIndex] : null
 
   readonly property bool alarming: Model.anyBad(entries)
 
@@ -37,15 +54,6 @@ Panel {
 
   function applyState(raw) {
     root.entries = Model.parseEntries(raw)
-  }
-
-  onOpenedChanged: if (opened) nowMs = Date.now()
-
-  Timer {
-    interval: 30000
-    running: root.opened
-    repeat: true
-    onTriggered: root.nowMs = Date.now()
   }
 
   FileView {
@@ -65,206 +73,190 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
+    // Fixed, not content-fitted: this is the one dimension in the whole
+    // panel that's non-negotiable, by design — see the mockup notes on
+    // why a size that changes per-tab or per-project reads as broken.
+    // cappedContentHeight still shrinks it on a genuinely too-small
+    // screen; it just never grows past 456 or shrinks for a quiet tab.
     contentWidth: panel.fittedContentWidth(Style.space(340))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(520))
+    contentHeight: panel.cappedContentHeight(Style.space(456))
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
       onCloseRequested: root.close()
 
-      Flickable {
-        id: flick
-        anchors.fill: parent
-        contentWidth: width
-        contentHeight: column.implicitHeight
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
+      Column {
+        id: header
+        width: parent.width
+        spacing: Style.space(10)
 
-        Column {
-          id: column
-          width: flick.width
-          spacing: Style.space(14)
+        PanelHero {
+          width: parent.width
+          title: "OWLOOK"
+          meta: Model.projectCountLabel(root.projects.length)
+          foreground: root.barForeground
+          fontFamily: Style.font.family
 
-          PanelHero {
-            width: parent.width
-            title: "Owlook"
-            meta: Model.groupByProject(root.entries).length + " project(s)"
-            foreground: root.barForeground
-            fontFamily: Style.font.family
-
-            iconComponent: Component {
-              Text {
-                text: "🦉"
-                font.pixelSize: Style.font.display
-              }
+          iconComponent: Component {
+            Text {
+              text: "🦉"
+              font.pixelSize: Style.font.display
             }
           }
+        }
 
-          PanelSeparator {
-            width: parent.width
+        PanelSeparator {
+          width: parent.width
+          foreground: root.barForeground
+        }
+
+        Text {
+          visible: root.entries.length === 0
+          width: parent.width
+          text: "No data yet — is the collector running?"
+          color: Qt.darker(root.barForeground, 1.4)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.body
+          wrapMode: Text.WordWrap
+        }
+
+        // One tab per project. Scrolls horizontally instead of the panel
+        // growing wider — a thin, always-visible scrollbar (not hover-only)
+        // is the discoverability cue that there's more to the right; a bare
+        // scroll strip with no cue reads as "that's everything".
+        ListView {
+          id: tabsList
+          visible: root.projects.length > 0
+          width: parent.width
+          height: visible ? implicitHeight : 0
+          implicitHeight: Style.space(26)
+          orientation: ListView.Horizontal
+          spacing: Style.space(4)
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          interactive: contentWidth > width
+
+          ScrollBar.horizontal: ScrollBar {
+            policy: ScrollBar.AsNeeded
+            height: Style.space(3)
+          }
+
+          model: root.projects
+          delegate: ProjectTab {}
+        }
+      }
+
+      // The active project's CI + QUEUES, filling everything below the
+      // header down to the panel's bottom edge.
+      Item {
+        id: body
+        visible: root.activeProject !== null
+        anchors.top: header.bottom
+        anchors.topMargin: Style.space(10)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+
+        Text {
+          id: projectNameText
+          anchors.top: parent.top
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          text: root.activeProject ? root.activeProject.project : ""
+          color: root.barForeground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.bodySmall
+          font.bold: true
+          elide: Text.ElideRight
+        }
+
+        // CI: fixed height, its own scroll — a project tracking six
+        // branches doesn't push QUEUES off-screen, it just gets a scrollbar.
+        Item {
+          id: ciSection
+          anchors.top: projectNameText.bottom
+          anchors.topMargin: Style.space(10)
+          anchors.left: parent.left
+          anchors.right: parent.right
+          height: Style.space(88)
+
+          PanelSectionHeader {
+            id: ciHeader
+            anchors.top: parent.top
+            text: "CI — " + Model.trackedLabel(root.activeProject ? root.activeProject.ci.length : 0)
+            foreground: root.barForeground
+          }
+
+          ListView {
+            anchors.top: ciHeader.bottom
+            anchors.topMargin: Style.space(4)
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            spacing: Style.space(6)
+            model: root.activeProject ? root.activeProject.ci : []
+            delegate: CiRow {}
+
+            ScrollBar.vertical: ScrollBar {
+              policy: ScrollBar.AsNeeded
+              width: Style.space(3)
+            }
+          }
+        }
+
+        // QUEUES: everything left over, down to the bottom edge. Deploy
+        // status has no row of its own here — nothing in v1 produces a
+        // "deploy" observation (see Collector), so there's nothing real to
+        // show yet; adding a permanent placeholder for it would just be
+        // noise until Kamal hooks land.
+        Item {
+          id: queuesSection
+          anchors.top: ciSection.bottom
+          anchors.topMargin: Style.space(20)
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+
+          readonly property int destCount: root.activeProject ? root.activeProject.destinations.length : 0
+
+          PanelSectionHeader {
+            id: queuesHeader
+            anchors.top: parent.top
+            text: "QUEUES — " + Model.trackedLabel(queuesSection.destCount)
             foreground: root.barForeground
           }
 
           Text {
-            visible: root.entries.length === 0
+            visible: queuesSection.destCount === 0
+            anchors.top: queuesHeader.bottom
+            anchors.topMargin: Style.space(6)
             width: parent.width
-            text: "No data yet — is the collector running?"
+            text: "no Kamal destinations configured"
             color: Qt.darker(root.barForeground, 1.4)
             font.family: Style.font.family
-            font.pixelSize: Style.font.body
-            wrapMode: Text.WordWrap
+            font.pixelSize: Style.font.caption
+            font.italic: true
           }
 
-          Repeater {
-            model: Model.groupByProject(root.entries)
+          ListView {
+            visible: queuesSection.destCount > 0
+            anchors.top: queuesHeader.bottom
+            anchors.topMargin: Style.space(4)
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            spacing: Style.space(6)
+            model: root.activeProject ? root.activeProject.destinations : []
+            delegate: DestRow {}
 
-            Column {
-              id: projectBlock
-              required property var modelData
-              required property int index
-              width: column.width
-              spacing: Style.space(10)
-
-              PanelSeparator {
-                width: parent.width
-                foreground: root.barForeground
-                visible: projectBlock.index > 0
-              }
-
-              Text {
-                width: projectBlock.width
-                text: projectBlock.modelData.project
-                color: root.barForeground
-                font.family: Style.font.family
-                font.pixelSize: Style.font.body
-                font.bold: true
-                elide: Text.ElideRight
-              }
-
-              // CI: a section of its own, never mixed visually with
-              // destinations — a branch ("master") sitting in the same list
-              // as destination names ("staging", "production") could read
-              // as if it were one too.
-              Column {
-                width: projectBlock.width
-                spacing: Style.space(4)
-                visible: projectBlock.modelData.ci.length > 0
-
-                PanelSectionHeader {
-                  text: "CI"
-                  foreground: root.barForeground
-                }
-
-                Repeater {
-                  model: projectBlock.modelData.ci
-
-                  Item {
-                    id: ciRow
-                    required property var modelData
-                    width: projectBlock.width
-                    implicitHeight: Math.max(ciIcon.implicitHeight, ciText.implicitHeight)
-
-                    Text {
-                      id: ciIcon
-                      anchors.left: parent.left
-                      anchors.verticalCenter: parent.verticalCenter
-                      text: Model.ciIcon(ciRow.modelData.state)
-                      color: Model.isBad(ciRow.modelData.state) ? root.urgent : root.barForeground
-                      font.family: Style.font.family
-                      font.pixelSize: Style.font.bodySmall
-                      font.bold: true
-                    }
-
-                    Text {
-                      id: ciText
-                      anchors.left: ciIcon.right
-                      anchors.leftMargin: Style.space(8)
-                      anchors.right: parent.right
-                      anchors.verticalCenter: parent.verticalCenter
-                      text: ciRow.modelData.branch + "  —  " + Model.ciSummary(ciRow.modelData)
-                        + "  ·  " + Model.relativeTime(ciRow.modelData.observed_at, root.nowMs)
-                      color: Model.isBad(ciRow.modelData.state) ? root.urgent : Qt.darker(root.barForeground, 1.15)
-                      font.family: Style.font.family
-                      font.pixelSize: Style.font.caption
-                      elide: Text.ElideRight
-                    }
-                  }
-                }
-              }
-
-              // Deploys + queues: one block per destination. deploy is
-              // omitted entirely (not "no data yet") — nothing produces
-              // that kind in v1, and a permanent placeholder line for a
-              // feature that doesn't exist is just noise.
-              Column {
-                width: projectBlock.width
-                spacing: Style.space(4)
-                visible: projectBlock.modelData.destinations.length > 0
-
-                PanelSectionHeader {
-                  text: "DEPLOYS & QUEUES"
-                  foreground: root.barForeground
-                }
-
-                Repeater {
-                  model: projectBlock.modelData.destinations
-
-                  Column {
-                    id: destBlock
-                    required property var modelData
-                    width: projectBlock.width
-                    spacing: Style.space(2)
-
-                    Text {
-                      width: destBlock.width
-                      text: destBlock.modelData.destination
-                      color: root.barForeground
-                      font.family: Style.font.family
-                      font.pixelSize: Style.font.caption
-                      font.bold: true
-                    }
-
-                    StatusLine {
-                      width: destBlock.width
-                      visible: destBlock.modelData.deploy !== null
-                      foreground: root.barForeground
-                      urgent: root.urgent
-                      bad: destBlock.modelData.deploy ? Model.isBad(destBlock.modelData.deploy.state) : false
-                      text: destBlock.modelData.deploy
-                        ? (Model.stateLabel(destBlock.modelData.deploy.state) + "  ·  "
-                            + Model.relativeTime(destBlock.modelData.deploy.observed_at, root.nowMs))
-                        : ""
-                    }
-
-                    StatusLine {
-                      id: queueLine
-                      width: destBlock.width
-                      visible: destBlock.modelData.queue !== null
-                      foreground: root.barForeground
-                      urgent: root.urgent
-                      bad: destBlock.modelData.queue ? Model.isBad(destBlock.modelData.queue.state) : false
-                      text: destBlock.modelData.queue
-                        ? (Model.queueShortText(destBlock.modelData.queue) + "  ·  "
-                            + Model.relativeTime(destBlock.modelData.queue.observed_at, root.nowMs))
-                        : ""
-
-                      MouseArea {
-                        id: queueHover
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        acceptedButtons: Qt.NoButton
-                        enabled: destBlock.modelData.queue && destBlock.modelData.queue.state === "unreachable"
-                      }
-
-                      PanelToolTip {
-                        visible: queueHover.enabled && queueHover.containsMouse
-                        text: destBlock.modelData.queue ? Model.queueErrorDetail(destBlock.modelData.queue) : ""
-                      }
-                    }
-                  }
-                }
-              }
+            ScrollBar.vertical: ScrollBar {
+              policy: ScrollBar.AsNeeded
+              width: Style.space(3)
             }
           }
         }
@@ -272,23 +264,230 @@ Panel {
     }
   }
 
-  component StatusLine: Item {
-    id: statusLine
-    property color foreground: Color.foreground
-    property color urgent: Color.urgent
-    property bool bad: false
-    property alias text: lineText.text
+  // ---- tab strip delegate --------------------------------------------
 
-    implicitHeight: lineText.implicitHeight
+  component ProjectTab: Item {
+    id: tabItem
+    required property var modelData
+    required property int index
+
+    readonly property bool active: index === root.activeIndex
+    readonly property bool bad: Model.projectIsBad(tabItem.modelData)
+
+    width: tabRow.implicitWidth + Style.space(20)
+    height: ListView.view ? ListView.view.height : implicitHeight
+    implicitHeight: Style.space(26)
+
+    Rectangle {
+      anchors.fill: parent
+      radius: Style.cornerRadius
+      color: tabItem.active ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.14) : "transparent"
+      border.width: tabItem.active ? Style.normalBorderWidth : 0
+      border.color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.45)
+    }
+
+    Row {
+      id: tabRow
+      anchors.centerIn: parent
+      spacing: Style.space(6)
+
+      Rectangle {
+        width: Style.space(6)
+        height: Style.space(6)
+        radius: width / 2
+        anchors.verticalCenter: parent.verticalCenter
+        color: tabItem.bad ? root.urgent : Color.muted
+      }
+
+      Text {
+        text: Model.shortProjectName(tabItem.modelData.project)
+        color: tabItem.active ? root.barForeground : Qt.darker(root.barForeground, 1.3)
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      onClicked: root.activeTabIndex = tabItem.index
+    }
+  }
+
+  // ---- CI row ----------------------------------------------------------
+
+  component CiRow: Item {
+    id: ciRow
+    required property var modelData
+
+    readonly property bool bad: Model.isBad(ciRow.modelData.state)
+
+    width: ListView.view ? ListView.view.width : 0
+    implicitHeight: Math.max(ciPill.height, ciText.implicitHeight)
+
+    // Fixed width so PASS/FAIL/RUN/… all line up — a pill that grows or
+    // shrinks per row was the exact thing this was built to avoid.
+    Rectangle {
+      id: ciPill
+      width: Style.space(38)
+      height: ciPillText.implicitHeight + Style.space(4)
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      radius: Style.cornerRadius
+      color: ciRow.bad
+        ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.16)
+        : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.08)
+
+      Text {
+        id: ciPillText
+        anchors.centerIn: parent
+        text: Model.ciBadgeLabel(ciRow.modelData.state)
+        color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
+    }
 
     Text {
-      id: lineText
-      width: statusLine.width
-      textFormat: Text.PlainText
-      color: statusLine.bad ? statusLine.urgent : Qt.darker(statusLine.foreground, 1.15)
+      id: ciText
+      anchors.left: ciPill.right
+      anchors.leftMargin: Style.space(8)
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.StyledText
+      text: "<b>" + ciRow.modelData.branch + "</b>  ·  " + Model.ciSummary(ciRow.modelData)
+      color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       elide: Text.ElideRight
+    }
+  }
+
+  // ---- destination (queue) row -----------------------------------------
+
+  component DestRow: Item {
+    id: destRow
+    required property var modelData
+
+    readonly property var queueEntry: destRow.modelData.queue
+    readonly property bool bad: destRow.queueEntry ? Model.isBad(destRow.queueEntry.state) : false
+    readonly property var stats: Model.destStats(destRow.queueEntry)
+
+    width: ListView.view ? ListView.view.width : 0
+    implicitHeight: destBg.height
+
+    Rectangle {
+      id: destBg
+      width: parent.width
+      height: destContent.implicitHeight + Style.space(18)
+      radius: Style.cornerRadius
+      color: destRow.bad
+        ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.12)
+        : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.05)
+
+      Rectangle {
+        // Left accent bar — the same severity cue as the pill, at a glance
+        // even when the row is scrolled so its badge text is cut off.
+        width: Style.space(3)
+        height: parent.height
+        radius: Style.cornerRadius
+        color: destRow.bad ? root.urgent : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.3)
+      }
+
+      Column {
+        id: destContent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.leftMargin: Style.space(12)
+        anchors.rightMargin: Style.space(9)
+        spacing: Style.space(6)
+
+        Item {
+          width: parent.width
+          height: Math.max(destName.implicitHeight, destBadge.height)
+
+          Text {
+            id: destName
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: destRow.modelData.destination
+            color: root.barForeground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.bodySmall
+            font.bold: true
+          }
+
+          Rectangle {
+            id: destBadge
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            radius: Style.cornerRadius
+            width: destBadgeText.implicitWidth + Style.space(10)
+            height: destBadgeText.implicitHeight + Style.space(4)
+            color: destRow.bad
+              ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.2)
+              : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.1)
+
+            Text {
+              id: destBadgeText
+              anchors.centerIn: parent
+              text: Model.destBadgeLabel(destRow.queueEntry)
+              color: destRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+          }
+        }
+
+        Row {
+          visible: destRow.stats.length > 0
+          width: parent.width
+          spacing: Style.space(12)
+
+          Repeater {
+            model: destRow.stats
+
+            Row {
+              id: statChip
+              required property var modelData
+              spacing: Style.space(3)
+
+              Text {
+                id: statValue
+                text: statChip.modelData.n
+                color: statChip.modelData.warn ? root.urgent : Qt.darker(root.barForeground, 1.1)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
+
+              Text {
+                text: statChip.modelData.l
+                color: Qt.darker(root.barForeground, 1.4)
+                font.family: Style.font.family
+                font.pixelSize: Math.round(Style.font.caption * 0.9)
+                anchors.baseline: statValue.baseline
+              }
+            }
+          }
+        }
+      }
+
+      MouseArea {
+        id: destHover
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+        enabled: destRow.queueEntry !== null && destRow.queueEntry.state === "unreachable"
+      }
+
+      PanelToolTip {
+        visible: destHover.enabled && destHover.containsMouse
+        text: destRow.queueEntry ? Model.queueErrorDetail(destRow.queueEntry) : ""
+      }
     }
   }
 }

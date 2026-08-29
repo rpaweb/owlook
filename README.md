@@ -48,7 +48,12 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
   clobber the other's data) and are joined only for display, by the widget.
 - A Quattro bar widget (`shell/plugins/status/`) reads that file through
   Quickshell's `FileView` with `watchChanges: true` — no polling on the QML
-  side, no process spawned by the widget itself.
+  side, no process spawned by the widget itself. The panel is a fixed
+  340×456 size, one tab per project — it never grows, no matter how many
+  projects or branches you track. Inside a tab, CI and QUEUES are two
+  independently-scrolling regions rather than one growing panel: a long
+  branch list or destination list scrolls inside its own box instead of
+  pushing the other section off-screen.
 
 ## Status / roadmap
 
