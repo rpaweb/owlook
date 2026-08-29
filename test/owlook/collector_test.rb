@@ -47,7 +47,11 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
-  def test_poll_ci_once_skips_a_project_with_no_workflow_runs_without_writing_a_row
+  # A project with no Actions runs yet still gets a row — not a silent
+  # skip. Otherwise it has no CI row and (usually) no queue row either, so
+  # it's invisible to the widget: no tab, no "0 tracked", nothing to
+  # distinguish "nothing has run yet" from "never configured at all".
+  def test_poll_ci_once_records_a_no_runs_row_when_a_project_has_no_workflow_runs
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
@@ -60,7 +64,16 @@ class Owlook::CollectorTest < Minitest::Test
 
         collector.poll_ci_once
 
-        refute File.exist?(state_path)
+        on_disk = JSON.parse(File.read(state_path))
+        assert_equal 1, on_disk.size
+        entry = on_disk.first
+        assert_equal "acme/widgets", entry["project"]
+        assert_equal "ci", entry["kind"]
+        assert_equal "main", entry["branch"]
+        assert_equal "no_runs", entry["state"]
+        assert_nil entry["version"]
+        assert_nil entry["author"]
+        assert_equal({}, entry["details"])
       end
     end
   end

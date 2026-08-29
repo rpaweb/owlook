@@ -72,29 +72,41 @@ module Owlook
       repo = GitRepo.new(path)
       owner, name = repo.owner_and_repo
       branch = repo.current_branch
+      project = "#{owner}/#{name}"
 
       run = @github_source.latest_run(owner: owner, repo: name, branch: branch)
       unless run
-        log("#{owner}/#{name}@#{branch}: no workflow runs")
-        return
+        log("#{project}@#{branch}: no workflow runs")
+        # A row like any other, not a silent skip — otherwise a project
+        # with no Actions runs yet has no CI row and no queue row, so it's
+        # invisible to the widget: no tab, no "0 tracked", nothing to
+        # distinguish it from a project nobody configured at all.
+        return record_ci_observation(project, branch, state: "no_runs", version: nil,
+          details: {}, timestamp: Time.now, author: nil)
       end
 
-      log("#{owner}/#{name}@#{branch}: #{run[:conclusion] || run[:status]}")
+      log("#{project}@#{branch}: #{run[:conclusion] || run[:status]}")
+      record_ci_observation(project, branch, state: run[:conclusion] || run[:status],
+        version: run[:head_sha], details: job_counts(run[:jobs]),
+        timestamp: Time.parse(run[:updated_at]), author: run[:actor])
+    rescue GitRepo::NoGithubRemoteError => e
+      log("skipping #{path}: #{e.message}")
+    end
+
+    def record_ci_observation(project, branch, state:, version:, details:, timestamp:, author:)
       @store.record(Observation.new(
-        project: "#{owner}/#{name}",
+        project: project,
         kind: "ci",
         branch: branch,
         destination: nil,
-        version: run[:head_sha],
-        state: run[:conclusion] || run[:status],
-        details: job_counts(run[:jobs]),
-        timestamp: Time.parse(run[:updated_at]),
-        author: run[:actor],
+        version: version,
+        state: state,
+        details: details,
+        timestamp: timestamp,
+        author: author,
         source: "github",
         observed_at: Time.now
       ))
-    rescue GitRepo::NoGithubRemoteError => e
-      log("skipping #{path}: #{e.message}")
     end
 
     # GitHub's own UI treats a run with only skipped jobs as green, not as
