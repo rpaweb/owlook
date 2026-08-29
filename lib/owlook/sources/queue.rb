@@ -25,11 +25,27 @@ module Owlook
 
       # Backlog = ready_executions: jobs waiting for a worker right now.
       # Dead = failed_executions: jobs that failed and haven't been retried
-      # or discarded. Targets the canonical solid_queue model names — a
-      # custom fork with a different schema (like a project pinning
-      # joshleblanc/solid_queue) may not match.
-      RUNNER_CODE = "puts({ready: SolidQueue::ReadyExecution.count, " \
-        "failed: SolidQueue::FailedExecution.count}.to_json)"
+      # or discarded. workers = processes Solid Queue itself still
+      # considers alive (SolidQueue.process_alive_threshold, 5 minutes by
+      # default — confirmed against the installed gem — rather than a
+      # guessed constant, so this tracks whatever the target app actually
+      # configured). oldest is the age in seconds of the longest-waiting
+      # ready job, omitted entirely when nothing's waiting — there's no
+      # "oldest" to report with zero ready jobs, and a fake zero there
+      # would read as "the queue just started", not "empty". Targets the
+      # canonical solid_queue model names — a custom fork with a different
+      # schema (like a project pinning joshleblanc/solid_queue) may not
+      # match.
+      RUNNER_CODE = <<~RUBY.strip
+        oldest_ready = SolidQueue::ReadyExecution.minimum(:created_at)
+        result = {
+          ready: SolidQueue::ReadyExecution.count,
+          failed: SolidQueue::FailedExecution.count,
+          workers: SolidQueue::Process.where("last_heartbeat_at > ?", SolidQueue.process_alive_threshold.ago).count
+        }
+        result[:oldest] = (Time.current - oldest_ready).round if oldest_ready
+        puts result.to_json
+      RUBY
 
       DEFAULT_SHELL = lambda do |command, chdir:|
         env = {}
@@ -91,7 +107,13 @@ module Owlook
         # not just one (confirmed against a real multi-role project) — one
         # identical JSON line per role, not a single line.
         data = JSON.parse(output.lines.first.to_s)
-        { ready: data.fetch("ready"), failed: data.fetch("failed") }
+        result = { ready: data.fetch("ready"), failed: data.fetch("failed") }
+        # workers/oldest are read defensively rather than with fetch: an
+        # older RUNNER_CODE (already-running collector mid-deploy, or a
+        # stubbed test fixture) may not have sent them yet.
+        result[:workers] = data["workers"] if data.key?("workers")
+        result[:oldest] = data["oldest"] if data.key?("oldest")
+        result
       end
     end
   end

@@ -15,8 +15,14 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
 - **Solid Queue**: for each of a project's Kamal destinations (read from
   `config/deploy*.yml`, filesystem only, no SSH), runs `bin/rails runner`
   inside the *already-running* production container over SSH
-  (`kamal app exec --reuse`) and records backlog (`ready` jobs) and dead-job
-  (`failed` jobs) counts. Needs zero code added to the target Rails app —
+  (`kamal app exec --reuse`) and records backlog (`ready` jobs), dead-job
+  (`failed` jobs), active-worker (`workers`, processes Solid Queue itself
+  still considers alive), and oldest-waiting-job-age (`oldest`, in
+  seconds, omitted when nothing's ready) counts. A ready count alone can't
+  say whether a queue is busy or stuck — `workers` and `oldest` are what
+  turn "60 ready" into either "4 workers chewing through it" or "0
+  workers, nothing's processing it at all". Needs zero code added to the
+  target Rails app —
   Solid Queue's own model classes already exist — and zero new credentials:
   it reuses whatever SSH access you already have for `kamal deploy` itself
   (same key, same agent — nothing owlook-specific to set up). Runs on its

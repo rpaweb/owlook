@@ -144,12 +144,11 @@ function destBadgeLabel(entry) {
 
 // The stat chips under a destination's name+badge, in a fixed order
 // (workers, oldest, ready) — but only the ones the row actually has data
-// for. Today's collector only ever records {ready, failed}, so in
-// practice this returns just a "ready" chip; workers/oldest render
-// automatically the day Sources::Queue starts reporting them, with no
-// Model.js change needed. "oldest" is omitted whenever ready is 0 — with
-// nothing waiting, there's no oldest waiting job to report, and a dash
-// there reads as broken rather than as "not applicable".
+// for, so an older observation recorded before Sources::Queue reported
+// workers/oldest still renders cleanly as just a "ready" chip. "oldest"
+// is also omitted whenever ready is 0 — with nothing waiting, there's no
+// oldest waiting job to report, and a dash there reads as broken rather
+// than as "not applicable".
 function destStats(entry) {
   if (!entry || entry.state === "unreachable") return []
   var d = entry.details || {}

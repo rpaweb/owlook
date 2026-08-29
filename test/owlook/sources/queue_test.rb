@@ -13,6 +13,39 @@ class Owlook::Sources::QueueTest < Minitest::Test
     assert_equal({ ready: 3, failed: 1 }, result)
   end
 
+  def test_status_includes_workers_and_oldest_when_present
+    shell = FakeShell.new('{"ready":5,"failed":1,"workers":2,"oldest":37}')
+    source = Owlook::Sources::Queue.new(shell: shell)
+
+    result = source.status(project_path: "/tmp/widgets", destination: "staging")
+
+    assert_equal({ ready: 5, failed: 1, workers: 2, oldest: 37 }, result)
+  end
+
+  # RUNNER_CODE never sends "oldest" when nothing's ready (see its own
+  # comment) — a fake zero there would read as "the queue just started"
+  # rather than "nothing waiting to report an age for".
+  def test_status_omits_oldest_when_nothing_is_ready
+    shell = FakeShell.new('{"ready":0,"failed":3,"workers":1}')
+    source = Owlook::Sources::Queue.new(shell: shell)
+
+    result = source.status(project_path: "/tmp/widgets", destination: "staging")
+
+    assert_equal({ ready: 0, failed: 3, workers: 1 }, result)
+    refute result.key?(:oldest)
+  end
+
+  # A stubbed/older payload without workers or oldest at all still parses
+  # cleanly — the two extra fields are read defensively, not with fetch.
+  def test_status_still_works_without_workers_or_oldest_in_the_payload
+    shell = FakeShell.new('{"ready":3,"failed":1}')
+    source = Owlook::Sources::Queue.new(shell: shell)
+
+    result = source.status(project_path: "/tmp/widgets", destination: "staging")
+
+    assert_equal({ ready: 3, failed: 1 }, result)
+  end
+
   # `kamal app exec --reuse` runs the command on every role matching the
   # destination, not just one (confirmed against a real multi-role project:
   # timeline-rails has "web" and "solid_queue" roles, and both answered) —
