@@ -104,24 +104,36 @@ function ciSummary(entry) {
 // Fixed-width pill label for a CI row, max 4 chars so every pill in the
 // section — pass or fail, running or queued — renders at the same width
 // instead of the box growing/shrinking per row.
-// ✓/✗ only for a state that's actually resolved pass/fail — the mockup
-// this was ported from always paired the glyph with the word ("✓ PASS",
-// "✗ FAIL"); the icon got dropped when the pill became fixed-width and
-// never came back. A state that isn't a pass/fail verdict (still
-// running, queued, no runs to report) gets no glyph — a checkmark or an
-// X would claim a result that doesn't exist yet.
 function ciBadgeLabel(state) {
   switch (String(state || "")) {
-    case "success": return "✓ PASS"
-    case "failure": return "✗ FAIL"
-    case "cancelled": return "✗ CANC"
-    case "timed_out": return "✗ TIME"
-    case "action_required": return "✗ ACT"
+    case "success": return "PASS"
+    case "failure": return "FAIL"
+    case "cancelled": return "CANC"
+    case "timed_out": return "TIME"
+    case "action_required": return "ACT"
     case "in_progress": return "RUN"
     case "queued": return "QUE"
     case "no_runs": return "NONE"
     case "checking": return "…"
     default: return "?"
+  }
+}
+
+// "check" for a resolved pass, "x" for any resolved fail-ish verdict,
+// null for anything that isn't a verdict yet (still running, queued, no
+// runs, checking, unknown) — a checkmark or an X would claim a result
+// that doesn't exist for those. Drawn as vector shapes in the widget
+// (see the VerdictIcon component in Panel.qml), not a Unicode glyph —
+// ✓/✗ render inconsistently across fonts/fallback chains at pill size.
+function ciVerdictIcon(state) {
+  switch (String(state || "")) {
+    case "success": return "check"
+    case "failure":
+    case "cancelled":
+    case "timed_out":
+    case "action_required":
+      return "x"
+    default: return null
   }
 }
 
@@ -314,6 +326,7 @@ if (typeof module !== "undefined") {
     queueErrorDetail: queueErrorDetail,
     ciSummary: ciSummary,
     ciBadgeLabel: ciBadgeLabel,
+    ciVerdictIcon: ciVerdictIcon,
     trackedLabel: trackedLabel,
     ciRunRows: ciRunRows,
     ciLoading: ciLoading,

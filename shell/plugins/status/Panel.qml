@@ -455,6 +455,7 @@ Panel {
     required property var modelData
 
     readonly property bool bad: Model.isBad(ciRow.modelData.state)
+    readonly property string verdictKind: Model.ciVerdictIcon(ciRow.modelData.state) || ""
 
     width: ListView.view ? ListView.view.width : 0
     implicitHeight: Math.max(ciPill.height, ciText.implicitHeight)
@@ -463,11 +464,8 @@ Panel {
     // shrinks per row was the exact thing this was built to avoid.
     Rectangle {
       id: ciPill
-      // Wide enough for the longest label with its glyph ("✗ CANC") —
-      // was sized for bare 4-letter codes before the glyph came back
-      // (see Model.ciBadgeLabel), too narrow for "✓ PASS"/"✗ FAIL" now.
-      width: Style.space(48)
-      height: ciPillText.implicitHeight + Style.space(4)
+      width: Style.space(44)
+      height: ciPillContent.implicitHeight + Style.space(4)
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
       radius: Style.cornerRadius
@@ -475,14 +473,32 @@ Panel {
         ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.16)
         : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.08)
 
-      Text {
-        id: ciPillText
+      Row {
+        id: ciPillContent
         anchors.centerIn: parent
-        text: Model.ciBadgeLabel(ciRow.modelData.state)
-        color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
-        font.family: Style.font.family
-        font.pixelSize: Style.font.caption
-        font.bold: true
+        spacing: Style.space(3)
+
+        // Vector-drawn, not a Unicode ✓/✗ — a font glyph at this size
+        // renders inconsistently across fallback chains (weight, baseline,
+        // sometimes an emoji-color substitution that ignores this color
+        // entirely). Same technique as the loading spinner: an exact
+        // shape, always.
+        VerdictIcon {
+          anchors.verticalCenter: parent.verticalCenter
+          visible: ciRow.verdictKind !== ""
+          kind: ciRow.verdictKind
+          strokeColor: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+        }
+
+        Text {
+          id: ciPillText
+          anchors.verticalCenter: parent.verticalCenter
+          text: Model.ciBadgeLabel(ciRow.modelData.state)
+          color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          font.bold: true
+        }
       }
     }
 
@@ -498,6 +514,67 @@ Panel {
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       elide: Text.ElideRight
+    }
+  }
+
+  // ---- CI verdict icon (check / x) --------------------------------------
+
+  // Two strokes, drawn with Shape/ShapePath like the loading spinner —
+  // deliberately not a Unicode ✓/✗ glyph. Only ever shown for a resolved
+  // verdict (kind is "" otherwise, see Model.ciVerdictIcon); nothing here
+  // implies a result for a branch that's still running or hasn't reported.
+  component VerdictIcon: Item {
+    id: vIcon
+    property string kind: ""
+    property color strokeColor: Color.foreground
+
+    // Coordinates ported exactly from the approved mockup SVG (viewBox
+    // 0 0 24 24: check "4,13 9,18 20,6", X "4,4 20,20" / "20,4 4,20") —
+    // fractions of a 24-unit box, so the shape matches what got signed
+    // off there, not a fresh guess at the same idea.
+    implicitWidth: Style.space(10)
+    implicitHeight: Style.space(10)
+
+    Shape {
+      anchors.fill: parent
+      visible: vIcon.kind === "check"
+      preferredRendererType: Shape.CurveRenderer
+
+      ShapePath {
+        strokeWidth: Style.space(1.6)
+        strokeColor: vIcon.strokeColor
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        joinStyle: ShapePath.RoundJoin
+
+        startX: vIcon.width * (4 / 24)
+        startY: vIcon.height * (13 / 24)
+        PathLine { x: vIcon.width * (9 / 24); y: vIcon.height * (18 / 24) }
+        PathLine { x: vIcon.width * (20 / 24); y: vIcon.height * (6 / 24) }
+      }
+    }
+
+    Shape {
+      anchors.fill: parent
+      visible: vIcon.kind === "x"
+      preferredRendererType: Shape.CurveRenderer
+
+      ShapePath {
+        strokeWidth: Style.space(1.6)
+        strokeColor: vIcon.strokeColor
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        startX: vIcon.width * (4 / 24); startY: vIcon.height * (4 / 24)
+        PathLine { x: vIcon.width * (20 / 24); y: vIcon.height * (20 / 24) }
+      }
+      ShapePath {
+        strokeWidth: Style.space(1.6)
+        strokeColor: vIcon.strokeColor
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        startX: vIcon.width * (20 / 24); startY: vIcon.height * (4 / 24)
+        PathLine { x: vIcon.width * (4 / 24); y: vIcon.height * (20 / 24) }
+      }
     }
   }
 
