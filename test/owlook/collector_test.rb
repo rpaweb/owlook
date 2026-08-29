@@ -21,7 +21,7 @@ class Owlook::CollectorTest < Minitest::Test
           }
         )
         collector = Owlook::Collector.new(
-          config: Owlook::Config.new({"projects" => [project_path]}),
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source
@@ -52,7 +52,7 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         collector = Owlook::Collector.new(
-          config: Owlook::Config.new({"projects" => [project_path]}),
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}) # no runs for any project
@@ -79,7 +79,7 @@ class Owlook::CollectorTest < Minitest::Test
           }
         )
         collector = Owlook::Collector.new(
-          config: Owlook::Config.new({"projects" => [no_remote_project, good_project]}),
+          config_loader: -> { Owlook::Config.new({"projects" => [no_remote_project, good_project]}) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source
@@ -99,7 +99,7 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         collector = Owlook::Collector.new(
-          config: Owlook::Config.new({"projects" => [project_path]}),
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}),
@@ -135,7 +135,7 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         collector = Owlook::Collector.new(
-          config: Owlook::Config.new({"projects" => [project_path]}),
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}),
@@ -154,6 +154,41 @@ class Owlook::CollectorTest < Minitest::Test
         assert_equal "unreachable", staging_row["state"]
         assert_equal "queue", staging_row["kind"]
         assert_includes staging_row["details"]["error"], "not stubbed"
+      end
+    end
+  end
+
+  # config.yml is read once per poll, not once at construction — so adding a
+  # project to it takes effect on the next cycle (well within 30s), not only
+  # after a systemctl restart. No file-watching needed: the collector is
+  # already looping this often anyway.
+  def test_poll_ci_once_picks_up_config_changes_without_being_reconstructed
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          ["acme", "widgets", "main"] => {
+            head_sha: "abc123", status: "completed", conclusion: "success",
+            updated_at: "2026-08-26T12:00:00Z", actor: "rafael"
+          }
+        )
+        projects = []
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => projects}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source
+        )
+
+        collector.poll_ci_once
+        refute File.exist?(state_path), "nothing configured yet, nothing to write"
+
+        projects << project_path
+        collector.poll_ci_once
+
+        on_disk = JSON.parse(File.read(state_path))
+        assert_equal 1, on_disk.size
+        assert_equal "acme/widgets", on_disk.first["project"]
       end
     end
   end

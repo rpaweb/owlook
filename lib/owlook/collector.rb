@@ -19,9 +19,13 @@ module Owlook
   # + destination — a queue backlog belongs to a deployed environment, not a
   # branch, so it needs Sources::Kamal to know which destinations exist.
   class Collector
-    def initialize(config:, store:, writer:, github_source:,
+    # config_loader is a callable (e.g. -> { Owlook::Config.load(path) }),
+    # not a static Config — called fresh on every poll rather than once at
+    # construction, so editing config.yml takes effect on the next cycle
+    # (well within 30s) instead of needing a systemd restart.
+    def initialize(config_loader:, store:, writer:, github_source:,
       kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new, logger: nil)
-      @config = config
+      @config_loader = config_loader
       @store = store
       @writer = writer
       @github_source = github_source
@@ -31,12 +35,12 @@ module Owlook
     end
 
     def poll_ci_once
-      @config.projects.each { |path| poll_project_ci(path) }
+      projects.each { |path| poll_project_ci(path) }
       write_snapshot
     end
 
     def poll_queues_once
-      @config.projects.each { |path| poll_project_queues(path) }
+      projects.each { |path| poll_project_queues(path) }
       write_snapshot
     end
 
@@ -53,6 +57,16 @@ module Owlook
     end
 
     private
+
+    # A config edit caught mid-write (or briefly invalid YAML) shouldn't
+    # crash the loop — skip this one cycle's projects and try again next
+    # time; the file is almost always valid by then.
+    def projects
+      @config_loader.call.projects
+    rescue Config::MissingFileError, Config::InvalidFileError => e
+      log("config reload failed, skipping this cycle: #{e.message}")
+      []
+    end
 
     def poll_project_ci(path)
       repo = GitRepo.new(path)

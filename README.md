@@ -100,7 +100,9 @@ projects:
 That's the whole file. Everything else is derived: owner/repo and branch
 come from each project's local git checkout (`git remote get-url origin`,
 `git branch --show-current`); a project without a `github.com` remote is
-logged and skipped, not an error.
+logged and skipped, not an error. Add or remove projects freely — the
+collector re-reads this file on every poll (not just at startup), so a
+change takes effect on the next cycle, no `systemctl restart` needed.
 
 ## Running the collector
 

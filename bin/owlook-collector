@@ -27,17 +27,20 @@ def log(message)
   $stderr.flush
 end
 
-config = Owlook::Config.load(CONFIG_PATH)
 client = Owlook::GithubClient.new(token: Owlook::GithubClient.resolve_token)
 
+# Reloaded from disk on every poll, not just at startup — editing
+# config.yml takes effect on the next cycle, no restart needed.
+config_loader = -> { Owlook::Config.load(CONFIG_PATH) }
+
 collector = Owlook::Collector.new(
-  config: config,
+  config_loader: config_loader,
   store: Owlook::Store.new,
   writer: Owlook::StateWriter.new(STATE_PATH),
   github_source: Owlook::Sources::GitHub.new(client: client),
   logger: method(:log)
 )
 
-log("starting: #{config.projects.size} project(s), CI every #{CI_POLL_INTERVAL}s, " \
-  "queues every #{QUEUE_POLL_INTERVAL}s -> #{STATE_PATH}")
+log("starting: watching #{CONFIG_PATH} (#{config_loader.call.projects.size} project(s) now), " \
+  "CI every #{CI_POLL_INTERVAL}s, queues every #{QUEUE_POLL_INTERVAL}s -> #{STATE_PATH}")
 collector.run(ci_interval: CI_POLL_INTERVAL, queue_interval: QUEUE_POLL_INTERVAL)
