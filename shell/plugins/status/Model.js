@@ -30,6 +30,18 @@ function badCount(entries) {
   return entries.filter(function(entry) { return isBad(entry.state) }).length
 }
 
+// "no_runs" rows exist so a project with no Actions runs yet still gets a
+// tab (see Collector#poll_project_ci) — but they're not a check that ran,
+// so they don't count as one. Used both for the bar tooltip's "N check(s)
+// passing" and for the CI section's own tracked-branch count below.
+function isRealCheck(entry) {
+  return entry.state !== "no_runs"
+}
+
+function realCheckCount(entries) {
+  return entries.filter(isRealCheck).length
+}
+
 function barText(entries) {
   if (entries.length === 0) return "🦉"
   var bad = badCount(entries)
@@ -49,6 +61,7 @@ function stateLabel(state) {
     case "ok": return "ok"
     case "failing": return "failing"
     case "unreachable": return "unreachable"
+    case "no_runs": return "no runs yet"
     default: return String(state || "unknown")
   }
 }
@@ -70,15 +83,6 @@ function queueShortText(entry) {
 function queueErrorDetail(entry) {
   if (!entry || entry.state !== "unreachable") return ""
   return (entry.details && entry.details.error) || "unknown error"
-}
-
-// "check" (✓/✗/…) rather than a specific glyph codepoint from Omarchy's
-// icon font, which isn't verified to exist — these are plain Unicode and
-// render with any font's fallback chain.
-function ciIcon(state) {
-  if (isBad(state)) return "✗"
-  if (state === "success" || state === "ok") return "✓"
-  return "…"
 }
 
 // "3/3", or "2/3 · 1 skipped" when something was skipped — skips don't
@@ -105,6 +109,7 @@ function ciBadgeLabel(state) {
     case "action_required": return "ACT"
     case "in_progress": return "RUN"
     case "queued": return "QUE"
+    case "no_runs": return "NONE"
     default: return "?"
   }
 }
@@ -114,6 +119,15 @@ function ciBadgeLabel(state) {
 // the same kind of count rather than two different vocabularies.
 function trackedLabel(count) {
   return count + " tracked"
+}
+
+// A project's CI rows, minus the "no_runs" ones — "N tracked" means N
+// branches that actually run CI, not N branches the collector merely
+// attempted to poll. A project with only "no_runs" rows renders exactly
+// like one with an empty ci list: "0 tracked" and the same empty-state
+// message QUEUES already shows for zero destinations.
+function ciRunRows(ciList) {
+  return (ciList || []).filter(isRealCheck)
 }
 
 // Short label for a destination's badge: the failed count normally, or
@@ -250,15 +264,17 @@ if (typeof module !== "undefined") {
     isBad: isBad,
     anyBad: anyBad,
     badCount: badCount,
+    isRealCheck: isRealCheck,
+    realCheckCount: realCheckCount,
     barText: barText,
     stateLabel: stateLabel,
     rowLocation: rowLocation,
     queueShortText: queueShortText,
     queueErrorDetail: queueErrorDetail,
-    ciIcon: ciIcon,
     ciSummary: ciSummary,
     ciBadgeLabel: ciBadgeLabel,
     trackedLabel: trackedLabel,
+    ciRunRows: ciRunRows,
     destBadgeLabel: destBadgeLabel,
     destStats: destStats,
     shortProjectName: shortProjectName,

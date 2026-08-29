@@ -47,9 +47,11 @@ Panel {
     if (entries.length === 0) return "Owlook — waiting for the collector"
     // entries counts rows (ci + queue + deploy), not distinct projects — a
     // single project with two failing destinations is 2 rows, not 2
-    // projects, so "check(s)" rather than "project(s)".
+    // projects, so "check(s)" rather than "project(s)". A "no_runs" row
+    // (a project with no Actions runs yet) isn't a check that ran, so it's
+    // excluded here the same way it's excluded from a tab's "N tracked".
     var bad = Model.badCount(entries)
-    return bad > 0 ? bad + " check(s) need attention" : entries.length + " check(s) passing"
+    return bad > 0 ? bad + " check(s) need attention" : Model.realCheckCount(entries) + " check(s) passing"
   }
 
   function applyState(raw) {
@@ -181,14 +183,34 @@ Panel {
           anchors.right: parent.right
           height: Style.space(88)
 
+          // "no_runs" rows exist so the project keeps its tab (see
+          // Collector#poll_project_ci) but they're not a branch that runs
+          // CI, so they're filtered out here — "N tracked" counts branches
+          // that actually have CI, same as QUEUES counts destinations
+          // that actually exist.
+          readonly property var rows: Model.ciRunRows(root.activeProject ? root.activeProject.ci : [])
+
           PanelSectionHeader {
             id: ciHeader
             anchors.top: parent.top
-            text: "CI — " + Model.trackedLabel(root.activeProject ? root.activeProject.ci.length : 0)
+            text: "CI — " + Model.trackedLabel(ciSection.rows.length)
             foreground: root.barForeground
           }
 
+          Text {
+            visible: ciSection.rows.length === 0
+            anchors.top: ciHeader.bottom
+            anchors.topMargin: Style.space(6)
+            width: parent.width
+            text: "no CI runs found"
+            color: Qt.darker(root.barForeground, 1.4)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            font.italic: true
+          }
+
           ListView {
+            visible: ciSection.rows.length > 0
             anchors.top: ciHeader.bottom
             anchors.topMargin: Style.space(4)
             anchors.left: parent.left
@@ -197,7 +219,7 @@ Panel {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             spacing: Style.space(6)
-            model: root.activeProject ? root.activeProject.ci : []
+            model: ciSection.rows
             delegate: CiRow {}
 
             ScrollBar.vertical: ScrollBar {
