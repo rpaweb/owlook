@@ -238,7 +238,12 @@ Panel {
           PanelSectionHeader {
             id: ciHeader
             anchors.top: parent.top
+            // The timing suffix is withheld while loading, not just left
+            // to read whatever's on disk — otherwise a duration from the
+            // *previous* cycle would sit right next to a spinner saying
+            // this one isn't done yet.
             text: "CI — " + Model.trackedLabel(ciSection.rows.length)
+              + (ciSection.loading ? "" : Model.timingSuffix(root.activeProject ? root.activeProject.ciTiming : null))
             foreground: root.barForeground
           }
 
@@ -314,6 +319,7 @@ Panel {
             id: queuesHeader
             anchors.top: parent.top
             text: "QUEUES — " + Model.trackedLabel(queuesSection.destCount)
+              + (queuesSection.loading ? "" : Model.timingSuffix(root.activeProject ? root.activeProject.queueTiming : null))
             foreground: root.barForeground
           }
 

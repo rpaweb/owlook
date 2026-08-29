@@ -31,14 +31,16 @@ function badCount(entries) {
 }
 
 // "no_runs" rows exist so a project with no Actions runs yet still gets a
-// tab (see Collector#poll_project_ci), and "checking" rows exist so a
+// tab (see Collector#poll_project_ci), "checking" rows exist so a
 // branch/destination the collector just discovered shows up before its
 // real check completes (see Collector#announce_new_ci_branches /
-// #announce_new_destinations) — neither is a check that actually ran, so
-// neither counts as one. Used both for the bar tooltip's "N check(s)
-// passing" and for the CI/QUEUES sections' own tracked counts below.
+// #announce_new_destinations), and "ci_timing"/"queue_timing" rows are a
+// duration measurement, not a check at all — none of the three counts as
+// one. Used both for the bar tooltip's "N check(s) passing" and for the
+// CI/QUEUES sections' own tracked counts below.
 function isRealCheck(entry) {
-  return entry.state !== "no_runs" && entry.state !== "checking"
+  return entry.kind !== "ci_timing" && entry.kind !== "queue_timing" &&
+    entry.state !== "no_runs" && entry.state !== "checking"
 }
 
 function realCheckCount(entries) {
@@ -166,6 +168,18 @@ function ciLoading(ciList) {
   return (ciList || []).some(function(entry) { return entry.state === "checking" })
 }
 
+// "· 0.9s" once a real duration is known (see Collector#record_timing),
+// "" otherwise — no dash, no "0.0s", just nothing to show yet. The caller
+// is expected to withhold this while its own section is still loading
+// (see Panel.qml), so a stale duration from the previous cycle never
+// sits next to a spinner claiming the current one isn't done.
+function timingSuffix(timingEntry) {
+  if (!timingEntry) return ""
+  var seconds = timingEntry.details && timingEntry.details.duration_seconds
+  if (seconds === undefined || seconds === null) return ""
+  return " · " + seconds + "s"
+}
+
 // Short label for a destination's badge: the failed count normally, or
 // "unreachable" when the check itself couldn't run (see
 // Collector#poll_destination_queue — that state means "SSH/exec failed",
@@ -278,7 +292,10 @@ function groupByProject(entries) {
 
   function projectGroup(name) {
     if (!projects[name]) {
-      projects[name] = { project: name, ci: [], destinationsByName: {}, destinationOrder: [] }
+      projects[name] = {
+        project: name, ci: [], destinationsByName: {}, destinationOrder: [],
+        ciTiming: null, queueTiming: null
+      }
       order.push(name)
     }
     return projects[name]
@@ -298,6 +315,10 @@ function groupByProject(entries) {
       group.ci.push(entry)
     } else if (entry.kind === "deploy" || entry.kind === "queue") {
       destinationGroup(group, entry.destination)[entry.kind] = entry
+    } else if (entry.kind === "ci_timing") {
+      group.ciTiming = entry
+    } else if (entry.kind === "queue_timing") {
+      group.queueTiming = entry
     }
   })
 
@@ -306,7 +327,9 @@ function groupByProject(entries) {
     return {
       project: group.project,
       ci: group.ci,
-      destinations: group.destinationOrder.slice().sort().map(function(d) { return group.destinationsByName[d] })
+      destinations: group.destinationOrder.slice().sort().map(function(d) { return group.destinationsByName[d] }),
+      ciTiming: group.ciTiming,
+      queueTiming: group.queueTiming
     }
   })
 }
@@ -330,6 +353,7 @@ if (typeof module !== "undefined") {
     trackedLabel: trackedLabel,
     ciRunRows: ciRunRows,
     ciLoading: ciLoading,
+    timingSuffix: timingSuffix,
     destBadgeLabel: destBadgeLabel,
     destStats: destStats,
     shortProjectName: shortProjectName,
