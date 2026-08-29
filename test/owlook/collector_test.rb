@@ -140,6 +140,57 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # A destination the store has never seen before gets an immediate
+  # "checking" row, written before the (slow, SSH-based) real check even
+  # starts — otherwise the very first thing a freshly-started collector
+  # writes for that destination is nothing at all, and the widget can't
+  # tell "not checked yet" from "not configured".
+  def test_poll_queues_once_writes_a_checking_placeholder_before_the_real_check_completes
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      writer = RecordingWriter.new
+      collector = Owlook::Collector.new(
+        config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+        store: Owlook::Store.new,
+        writer: writer,
+        github_source: FakeGithubSource.new({}),
+        kamal_source: FakeKamalSource.new(project_path => ["default"]),
+        queue_source: FakeQueueSource.new(["default"] => { ready: 2, failed: 0 })
+      )
+
+      collector.poll_queues_once
+
+      checking_writes = writer.snapshots.select { |snap| snap.any? { |row| row[:state] == "checking" } }
+      assert_equal 1, checking_writes.size, "expected exactly one write with a checking placeholder"
+
+      final = writer.snapshots.last
+      assert_equal "ok", final.find { |row| row[:destination] == "default" }[:state]
+    end
+  end
+
+  # Re-announcing an already-known destination as "checking" on every
+  # cycle would flash real data back to a loading state every 60s —
+  # Store#record always keeps the newer timestamp, and "checking" always
+  # timestamps as "now".
+  def test_poll_queues_once_does_not_reannounce_an_already_known_destination
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      writer = RecordingWriter.new
+      collector = Owlook::Collector.new(
+        config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+        store: Owlook::Store.new,
+        writer: writer,
+        github_source: FakeGithubSource.new({}),
+        kamal_source: FakeKamalSource.new(project_path => ["default"]),
+        queue_source: FakeQueueSource.new(["default"] => { ready: 2, failed: 0 })
+      )
+
+      collector.poll_queues_once
+      collector.poll_queues_once
+
+      checking_writes = writer.snapshots.select { |snap| snap.any? { |row| row[:state] == "checking" } }
+      assert_equal 1, checking_writes.size, "a known destination should never be reset to checking"
+    end
+  end
+
   # A project whose workflows are wired to more than one branch (master ->
   # production, staging -> staging) gets a CI row for each — the branch
   # checked out locally is no longer the only thing that decides what's
@@ -448,6 +499,23 @@ class Owlook::CollectorTest < Minitest::Test
   FakeSettings = Struct.new(:all_branches, keyword_init: true) do
     def all_branches?
       !!all_branches
+    end
+  end
+
+  # A real StateWriter only exposes what's on disk right now — this
+  # records every snapshot passed to #write, in order, so a test can
+  # assert on the sequence of writes (e.g. "checking" landed before the
+  # real result), not just the final state.
+  class RecordingWriter
+    attr_reader :snapshots
+
+    def initialize
+      @snapshots = []
+    end
+
+    def write(snapshot)
+      @snapshots << snapshot
+      true
     end
   end
 

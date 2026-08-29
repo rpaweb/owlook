@@ -50,7 +50,6 @@ module Owlook
 
     def poll_queues_once
       projects.each { |path| poll_project_queues(path) }
-      write_snapshot
     end
 
     def run(ci_interval:, queue_interval:)
@@ -181,9 +180,54 @@ module Owlook
       owner, name = repo.owner_and_repo
       project = "#{owner}/#{name}"
 
-      @kamal_source.destinations(path).each { |destination| poll_destination_queue(path, project, destination) }
+      destinations = @kamal_source.destinations(path)
+      # A destination the store has never seen gets a "checking" row the
+      # instant it's discovered — reading Kamal's destinations is a local
+      # file read (Sources::Kamal), effectively free, unlike the real
+      # check that follows (an SSH round-trip, seconds to tens of seconds
+      # per destination). Without this, a project's queues render
+      # identically to "nothing configured" for as long as its slowest
+      # destination takes to answer — worst case, that's the very first
+      # thing the widget has to show right after the collector starts.
+      # Written immediately, before the slow checks below, instead of
+      # waiting for the whole cycle to finish like poll_ci_once does.
+      announce_new_destinations(project, destinations)
+      write_snapshot
+
+      destinations.each { |destination| poll_destination_queue(path, project, destination) }
+      write_snapshot
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping queues for #{path}: #{e.message}")
+    end
+
+    def announce_new_destinations(project, destinations)
+      destinations.each do |destination|
+        pending = pending_queue_observation(project, destination)
+        # Only for a destination the store has no data for at all — every
+        # cycle re-announcing an already-known one would flash real data
+        # back to "checking" on each poll, since Store#record always keeps
+        # whichever observation's timestamp is newer and this one's is
+        # always "now".
+        next if @store.known?(pending.key)
+
+        @store.record(pending)
+      end
+    end
+
+    def pending_queue_observation(project, destination)
+      Observation.new(
+        project: project,
+        kind: "queue",
+        branch: nil,
+        destination: destination,
+        version: nil,
+        state: "checking",
+        details: {},
+        timestamp: Time.now,
+        author: nil,
+        source: "kamal-exec",
+        observed_at: Time.now
+      )
     end
 
     def poll_destination_queue(path, project, destination)

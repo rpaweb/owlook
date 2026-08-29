@@ -62,6 +62,19 @@ class Owlook::StoreTest < Minitest::Test
     assert_equal 2, store.snapshot.size
   end
 
+  def test_known_is_false_before_anything_is_recorded_for_a_key
+    store = Owlook::Store.new
+    refute store.known?(ci_observation(branch: "main").key)
+  end
+
+  def test_known_is_true_once_something_is_recorded_for_a_key
+    store = Owlook::Store.new
+    observation = ci_observation(branch: "main")
+    store.record(observation)
+
+    assert store.known?(observation.key)
+  end
+
   def test_snapshot_entries_are_plain_hashes
     store = Owlook::Store.new
     store.record(ci_observation(branch: "main", timestamp: Time.at(100)))

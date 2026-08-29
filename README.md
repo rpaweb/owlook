@@ -52,6 +52,17 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
   passphrase-protected key still needs to be unlocked in your agent at
   least once (same as for any other use of it) — owlook never touches or
   stores a passphrase.
+
+  A destination the collector has just discovered (right after it starts,
+  or a destination newly added to `deploy*.yml`) gets a `state: "checking"`
+  row the instant it's found — reading Kamal's destinations is a local
+  file read, effectively free, unlike the SSH round-trip that follows.
+  Without it, a destination is indistinguishable from "not configured"
+  for however long its first real check takes; the panel would rather say
+  it's checking than lie about there being nothing there. Only for a
+  destination with no data at all — an already-known one keeps whatever
+  it last reported until the next real check replaces it, so a slow poll
+  doesn't flash real numbers back to "checking" every cycle.
 - State is unified into rows of three disjoint kinds, deduplicated so the
   most recently timestamped observation always wins for its identity, and
   written atomically to `$XDG_RUNTIME_DIR/owlook.json` — but **only when it

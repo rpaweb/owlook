@@ -23,6 +23,10 @@ module Owlook
       true
     end
 
+    def known?(key)
+      @entries.key?(key)
+    end
+
     def snapshot
       @entries.values.map(&:to_h)
     end
