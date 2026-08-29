@@ -31,11 +31,14 @@ function badCount(entries) {
 }
 
 // "no_runs" rows exist so a project with no Actions runs yet still gets a
-// tab (see Collector#poll_project_ci) — but they're not a check that ran,
-// so they don't count as one. Used both for the bar tooltip's "N check(s)
-// passing" and for the CI section's own tracked-branch count below.
+// tab (see Collector#poll_project_ci), and "checking" rows exist so a
+// branch/destination the collector just discovered shows up before its
+// real check completes (see Collector#announce_new_ci_branches /
+// #announce_new_destinations) — neither is a check that actually ran, so
+// neither counts as one. Used both for the bar tooltip's "N check(s)
+// passing" and for the CI/QUEUES sections' own tracked counts below.
 function isRealCheck(entry) {
-  return entry.state !== "no_runs"
+  return entry.state !== "no_runs" && entry.state !== "checking"
 }
 
 function realCheckCount(entries) {
@@ -111,6 +114,7 @@ function ciBadgeLabel(state) {
     case "in_progress": return "RUN"
     case "queued": return "QUE"
     case "no_runs": return "NONE"
+    case "checking": return "…"
     default: return "?"
   }
 }
@@ -126,9 +130,22 @@ function trackedLabel(count) {
 // branches that actually run CI, not N branches the collector merely
 // attempted to poll. A project with only "no_runs" rows renders exactly
 // like one with an empty ci list: "0 tracked" and the same empty-state
-// message QUEUES already shows for zero destinations.
+// message QUEUES already shows for zero destinations. "checking" rows
+// are kept in, unlike isRealCheck's stricter filter — the collector
+// already knows this branch exists and will report on it, so the count
+// (and, via ciLoading below, the fact that a result is still pending)
+// should stay stable through the loading spinner rather than starting
+// at 0 and jumping once results land.
 function ciRunRows(ciList) {
-  return (ciList || []).filter(isRealCheck)
+  return (ciList || []).filter(function(entry) { return entry.state !== "no_runs" })
+}
+
+// Whether the CI section should show a loading spinner instead of its
+// rows — true while any tracked branch hasn't resolved yet. Same
+// all-or-nothing principle as destinationsLoading: the section waits for
+// every branch to have a real result before showing any of them.
+function ciLoading(ciList) {
+  return (ciList || []).some(function(entry) { return entry.state === "checking" })
 }
 
 // Short label for a destination's badge: the failed count normally, or
@@ -293,6 +310,7 @@ if (typeof module !== "undefined") {
     ciBadgeLabel: ciBadgeLabel,
     trackedLabel: trackedLabel,
     ciRunRows: ciRunRows,
+    ciLoading: ciLoading,
     destBadgeLabel: destBadgeLabel,
     destStats: destStats,
     shortProjectName: shortProjectName,

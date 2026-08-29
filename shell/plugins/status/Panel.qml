@@ -229,8 +229,11 @@ Panel {
           // Collector#poll_project_ci) but they're not a branch that runs
           // CI, so they're filtered out here — "N tracked" counts branches
           // that actually have CI, same as QUEUES counts destinations
-          // that actually exist.
+          // that actually exist. "checking" rows stay in (see
+          // Model.ciRunRows), so this count is stable through the loading
+          // spinner instead of starting at 0.
           readonly property var rows: Model.ciRunRows(root.activeProject ? root.activeProject.ci : [])
+          readonly property bool loading: Model.ciLoading(root.activeProject ? root.activeProject.ci : [])
 
           PanelSectionHeader {
             id: ciHeader
@@ -240,7 +243,7 @@ Panel {
           }
 
           Text {
-            visible: ciSection.rows.length === 0
+            visible: !ciSection.loading && ciSection.rows.length === 0
             anchors.top: ciHeader.bottom
             anchors.topMargin: Style.space(6)
             width: parent.width
@@ -251,8 +254,22 @@ Panel {
             font.italic: true
           }
 
+          Item {
+            visible: ciSection.loading
+            anchors.top: ciHeader.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+
+            LoadingSpinner {
+              anchors.centerIn: parent
+              foreground: Color.accent
+              running: parent.visible
+            }
+          }
+
           ListView {
-            visible: ciSection.rows.length > 0
+            visible: !ciSection.loading && ciSection.rows.length > 0
             anchors.top: ciHeader.bottom
             anchors.topMargin: Style.space(4)
             anchors.left: parent.left
