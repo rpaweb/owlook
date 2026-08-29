@@ -195,6 +195,19 @@ function projectIsBad(group) {
   })
 }
 
+// Whether the QUEUES section should show a loading spinner instead of
+// its rows — true while any destination has no resolved check yet (no
+// queue observation at all, or still "checking" — see
+// Collector#announce_new_destinations). All-or-nothing: the section
+// waits for every destination to have a real result before showing any
+// of them, rather than rows trickling in one at a time as each SSH
+// check happens to finish.
+function destinationsLoading(destinations) {
+  return (destinations || []).some(function(dest) {
+    return !dest.queue || dest.queue.state === "checking"
+  })
+}
+
 // A "ci" row is identified by branch, a "deploy"/"queue" row by destination
 // — never both set on the same row (see Ruby's Owlook::Observation#key).
 function rowLocation(entry) {
@@ -284,6 +297,7 @@ if (typeof module !== "undefined") {
     destStats: destStats,
     shortProjectName: shortProjectName,
     projectIsBad: projectIsBad,
+    destinationsLoading: destinationsLoading,
     projectCountLabel: projectCountLabel,
     relativeTime: relativeTime,
     groupByProject: groupByProject

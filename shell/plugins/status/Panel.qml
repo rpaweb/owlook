@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -283,7 +284,14 @@ Panel {
           anchors.right: parent.right
           anchors.bottom: parent.bottom
 
-          readonly property int destCount: root.activeProject ? root.activeProject.destinations.length : 0
+          readonly property var destinations: root.activeProject ? root.activeProject.destinations : []
+          readonly property int destCount: destinations.length
+          // All-or-nothing: while any destination's queue check hasn't
+          // resolved yet (no observation at all, or the "checking"
+          // placeholder — see Collector#announce_new_destinations), show
+          // one spinner instead of the list, rather than real rows mixed
+          // in with rows still waiting.
+          readonly property bool loading: Model.destinationsLoading(queuesSection.destinations)
 
           PanelSectionHeader {
             id: queuesHeader
@@ -304,8 +312,22 @@ Panel {
             font.italic: true
           }
 
+          Item {
+            visible: queuesSection.destCount > 0 && queuesSection.loading
+            anchors.top: queuesHeader.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+
+            LoadingSpinner {
+              anchors.centerIn: parent
+              foreground: Color.accent
+              running: parent.visible
+            }
+          }
+
           ListView {
-            visible: queuesSection.destCount > 0
+            visible: queuesSection.destCount > 0 && !queuesSection.loading
             anchors.top: queuesHeader.bottom
             anchors.topMargin: Style.space(4)
             anchors.left: parent.left
@@ -314,7 +336,7 @@ Panel {
             clip: true
             boundsBehavior: Flickable.StopAtBounds
             spacing: Style.space(6)
-            model: root.activeProject ? root.activeProject.destinations : []
+            model: queuesSection.destinations
             delegate: DestRow {}
 
             ScrollBar.vertical: ScrollBar {
@@ -588,6 +610,53 @@ Panel {
       PanelToolTip {
         visible: destHover.enabled && destHover.containsMouse
         text: destRow.queueEntry ? Model.queueErrorDetail(destRow.queueEntry) : ""
+      }
+    }
+  }
+
+  // ---- loading spinner ---------------------------------------------------
+
+  // A rotating open ring (Shape + PathAngleArc, the same technique the
+  // shell's own speed-test dials use) — not a word. "checking…" as text
+  // read as a broken/empty state, not a busy one; a spinner is the
+  // unambiguous "still working on it" signal for what's otherwise a
+  // completely empty section.
+  component LoadingSpinner: Item {
+    id: spinner
+    property color foreground: Color.accent
+    property bool running: true
+
+    implicitWidth: Style.space(28)
+    implicitHeight: Style.space(28)
+
+    Shape {
+      id: arc
+      anchors.fill: parent
+      preferredRendererType: Shape.CurveRenderer
+      opacity: spinner.running ? 1 : 0
+
+      RotationAnimation on rotation {
+        from: 0
+        to: 360
+        duration: 900
+        loops: Animation.Infinite
+        running: spinner.running
+      }
+
+      ShapePath {
+        strokeWidth: Style.space(3)
+        strokeColor: spinner.foreground
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+
+        PathAngleArc {
+          centerX: arc.width / 2
+          centerY: arc.height / 2
+          radiusX: (arc.width - Style.space(3)) / 2
+          radiusY: (arc.height - Style.space(3)) / 2
+          startAngle: 0
+          sweepAngle: 270
+        }
       }
     }
   }
