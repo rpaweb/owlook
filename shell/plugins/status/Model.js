@@ -93,6 +93,89 @@ function ciSummary(entry) {
   return text
 }
 
+// Fixed-width pill label for a CI row, max 4 chars so every pill in the
+// section — pass or fail, running or queued — renders at the same width
+// instead of the box growing/shrinking per row.
+function ciBadgeLabel(state) {
+  switch (String(state || "")) {
+    case "success": return "PASS"
+    case "failure": return "FAIL"
+    case "cancelled": return "CANC"
+    case "timed_out": return "TIME"
+    case "action_required": return "ACT"
+    case "in_progress": return "RUN"
+    case "queued": return "QUE"
+    default: return "?"
+  }
+}
+
+// "N tracked" — same wording for both the CI and QUEUES section headers
+// (branches tracked, destinations tracked), so the two sections read as
+// the same kind of count rather than two different vocabularies.
+function trackedLabel(count) {
+  return count + " tracked"
+}
+
+// Short label for a destination's badge: the failed count normally, or
+// "unreachable" when the check itself couldn't run (see
+// Collector#poll_destination_queue — that state means "SSH/exec failed",
+// not "zero failures").
+function destBadgeLabel(entry) {
+  if (!entry) return ""
+  if (entry.state === "unreachable") return "unreachable"
+  var details = entry.details || {}
+  var failed = details.failed !== undefined ? details.failed : "?"
+  return failed + " failed"
+}
+
+// The stat chips under a destination's name+badge, in a fixed order
+// (workers, oldest, ready) — but only the ones the row actually has data
+// for. Today's collector only ever records {ready, failed}, so in
+// practice this returns just a "ready" chip; workers/oldest render
+// automatically the day Sources::Queue starts reporting them, with no
+// Model.js change needed. "oldest" is omitted whenever ready is 0 — with
+// nothing waiting, there's no oldest waiting job to report, and a dash
+// there reads as broken rather than as "not applicable".
+function destStats(entry) {
+  if (!entry || entry.state === "unreachable") return []
+  var d = entry.details || {}
+  var stats = []
+  if (d.workers !== undefined) {
+    stats.push({ n: String(d.workers), l: "workers", warn: d.workers === 0 })
+  }
+  if (d.ready !== undefined && d.ready > 0 && d.oldest !== undefined) {
+    stats.push({ n: String(d.oldest), l: "oldest", warn: false })
+  }
+  if (d.ready !== undefined) {
+    stats.push({ n: String(d.ready), l: "ready", warn: false })
+  }
+  return stats
+}
+
+// The last path segment of "owner/repo" — what a tab shows. The owner is
+// still there in the project-name line inside the tab's own content; the
+// tab strip itself is tight on space and every project here is already
+// disambiguated by which tab it's on.
+function shortProjectName(project) {
+  var parts = String(project || "").split("/")
+  return parts[parts.length - 1] || String(project || "")
+}
+
+// "1 project" / "5 projects" — PanelHero uppercases this itself.
+function projectCountLabel(count) {
+  return count + (count === 1 ? " project" : " projects")
+}
+
+// Whether a project has anything that should turn its tab dot red —
+// checked before the tab is even opened, same purpose as the bar pill's
+// own alarming state but scoped to one project.
+function projectIsBad(group) {
+  if (group.ci.some(function(entry) { return isBad(entry.state) })) return true
+  return group.destinations.some(function(dest) {
+    return (dest.deploy && isBad(dest.deploy.state)) || (dest.queue && isBad(dest.queue.state))
+  })
+}
+
 // A "ci" row is identified by branch, a "deploy"/"queue" row by destination
 // — never both set on the same row (see Ruby's Owlook::Observation#key).
 function rowLocation(entry) {
@@ -174,6 +257,13 @@ if (typeof module !== "undefined") {
     queueErrorDetail: queueErrorDetail,
     ciIcon: ciIcon,
     ciSummary: ciSummary,
+    ciBadgeLabel: ciBadgeLabel,
+    trackedLabel: trackedLabel,
+    destBadgeLabel: destBadgeLabel,
+    destStats: destStats,
+    shortProjectName: shortProjectName,
+    projectIsBad: projectIsBad,
+    projectCountLabel: projectCountLabel,
     relativeTime: relativeTime,
     groupByProject: groupByProject
   }
