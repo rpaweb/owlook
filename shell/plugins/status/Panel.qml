@@ -463,7 +463,10 @@ Panel {
     // shrinks per row was the exact thing this was built to avoid.
     Rectangle {
       id: ciPill
-      width: Style.space(38)
+      // Wide enough for the longest label with its glyph ("✗ CANC") —
+      // was sized for bare 4-letter codes before the glyph came back
+      // (see Model.ciBadgeLabel), too narrow for "✓ PASS"/"✗ FAIL" now.
+      width: Style.space(48)
       height: ciPillText.implicitHeight + Style.space(4)
       anchors.left: parent.left
       anchors.verticalCenter: parent.verticalCenter
