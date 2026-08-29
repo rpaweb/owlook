@@ -24,13 +24,15 @@ module Owlook
     # construction, so editing config.yml takes effect on the next cycle
     # (well within 30s) instead of needing a systemd restart.
     def initialize(config_loader:, store:, writer:, github_source:,
-      kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new, logger: nil)
+      kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new,
+      workflows_source: Sources::Workflows.new, logger: nil)
       @config_loader = config_loader
       @store = store
       @writer = writer
       @github_source = github_source
       @kamal_source = kamal_source
       @queue_source = queue_source
+      @workflows_source = workflows_source
       @logger = logger
     end
 
@@ -71,9 +73,29 @@ module Owlook
     def poll_project_ci(path)
       repo = GitRepo.new(path)
       owner, name = repo.owner_and_repo
-      branch = repo.current_branch
       project = "#{owner}/#{name}"
 
+      branches_to_poll(path, repo).each { |branch| poll_branch_ci(owner, name, project, branch) }
+    rescue GitRepo::NoGithubRemoteError => e
+      log("skipping #{path}: #{e.message}")
+    end
+
+    # Branches wired to a push-triggered workflow (master, staging, …) —
+    # read locally from .github/workflows/*.yml, the same reason
+    # Sources::Kamal reads config/deploy*.yml locally instead of asking an
+    # API: it's free, and a workflow that runs `on: push: branches: [...]`
+    # is the actual source of truth for "CI is wired to this branch",
+    # unlike run history (which also surfaces every dependabot/renovate
+    # branch that merely triggered a `pull_request`-only workflow —
+    # confirmed noisy against a real repo). Falls back to whatever's
+    # checked out locally when a project has no push-triggered workflow at
+    # all (PR-only CI, or none yet), so it isn't silently left untracked.
+    def branches_to_poll(path, repo)
+      branches = @workflows_source.branches(path)
+      branches.any? ? branches : [repo.current_branch]
+    end
+
+    def poll_branch_ci(owner, name, project, branch)
       run = @github_source.latest_run(owner: owner, repo: name, branch: branch)
       unless run
         log("#{project}@#{branch}: no workflow runs")
@@ -89,8 +111,6 @@ module Owlook
       record_ci_observation(project, branch, state: run[:conclusion] || run[:status],
         version: run[:head_sha], details: job_counts(run[:jobs]),
         timestamp: Time.parse(run[:updated_at]), author: run[:actor])
-    rescue GitRepo::NoGithubRemoteError => e
-      log("skipping #{path}: #{e.message}")
     end
 
     def record_ci_observation(project, branch, state:, version:, details:, timestamp:, author:)

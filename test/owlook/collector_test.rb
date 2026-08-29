@@ -140,6 +140,68 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # A project whose workflows are wired to more than one branch (master ->
+  # production, staging -> staging) gets a CI row for each — the branch
+  # checked out locally is no longer the only thing that decides what's
+  # polled.
+  def test_poll_ci_once_polls_every_branch_a_workflow_pushes_to
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          ["acme", "widgets", "master"] => { head_sha: "aaa111", status: "completed", conclusion: "success",
+            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
+          ["acme", "widgets", "staging"] => { head_sha: "bbb222", status: "completed", conclusion: "failure",
+            updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        )
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source,
+          workflows_source: FakeWorkflowsSource.new(project_path => ["master", "staging"])
+        )
+
+        collector.poll_ci_once
+
+        on_disk = JSON.parse(File.read(state_path)).sort_by { |e| e["branch"] }
+        assert_equal 2, on_disk.size
+        assert_equal ["master", "staging"], on_disk.map { |e| e["branch"] }
+        assert_equal "success", on_disk.find { |e| e["branch"] == "master" }["state"]
+        assert_equal "failure", on_disk.find { |e| e["branch"] == "staging" }["state"]
+      end
+    end
+  end
+
+  # A project with no push-triggered workflow (PR-only CI, or none at all)
+  # falls back to whatever's checked out locally instead of tracking
+  # nothing — same single-branch behavior as before Sources::Workflows
+  # existed.
+  def test_poll_ci_once_falls_back_to_the_checked_out_branch_without_a_push_workflow
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          ["acme", "widgets", "main"] => { head_sha: "abc123", status: "completed", conclusion: "success",
+            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        )
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source,
+          workflows_source: FakeWorkflowsSource.new({})
+        )
+
+        collector.poll_ci_once
+
+        on_disk = JSON.parse(File.read(state_path))
+        assert_equal 1, on_disk.size
+        assert_equal "main", on_disk.first["branch"]
+      end
+    end
+  end
+
   # A silently-skipped destination looks identical to one nobody's checked
   # yet — the widget can't tell "SSH is broken" from "no data so far". Record
   # what happened instead of omitting the row.
@@ -248,6 +310,19 @@ class Owlook::CollectorTest < Minitest::Test
     end
 
     def destinations(project_path)
+      @routes.fetch(project_path, [])
+    end
+  end
+
+  # Routes branches(project_path) to canned lists. Missing key means "no
+  # push-triggered workflow" ([]), matching the real Sources::Workflows
+  # contract.
+  class FakeWorkflowsSource
+    def initialize(routes)
+      @routes = routes
+    end
+
+    def branches(project_path)
       @routes.fetch(project_path, [])
     end
   end

@@ -9,9 +9,20 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
 - **One collector process** (`bin/owlook-collector`, installable as a
   systemd `--user` unit) polls every project listed in your config once per
   cycle.
-- **GitHub Actions**: for each project, resolves `owner/repo` and the
-  current branch from the local git checkout, fetches the latest workflow
-  run for that branch, and records its status, conclusion, jobs, and steps.
+- **GitHub Actions**: for each project, resolves `owner/repo` from the
+  local git checkout and figures out which branches to poll by reading
+  `.github/workflows/*.yml` for any workflow that triggers `on: push` to a
+  named branch — the same wiring that makes a deploy workflow fire
+  (`push: [master]` → deploy to production), so it tracks exactly the
+  long-lived, environment-tied branches (`master`, `staging`, …) without
+  needing a manually-maintained list, and without the noise a plain "every
+  branch with a run" query would pull in (dependabot/renovate branches
+  only ever trigger a `pull_request`-shaped workflow, never a named
+  `push` — confirmed against a real repo). A project with no
+  push-triggered workflow at all falls back to whatever's checked out
+  locally, so it's still tracked, just as one branch. For each branch,
+  fetches the latest workflow run and records its status, conclusion,
+  jobs, and steps.
 - **Solid Queue**: for each of a project's Kamal destinations (read from
   `config/deploy*.yml`, filesystem only, no SSH), runs `bin/rails runner`
   inside the *already-running* production container over SSH
