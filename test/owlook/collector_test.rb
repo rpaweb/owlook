@@ -500,6 +500,181 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  def test_poll_ci_once_does_not_notify_on_the_first_ever_result
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        # Already failing the very first time owlook ever checks it —
+        # not news, since there's nothing to compare it against yet.
+        github_source = FakeGithubSource.new(
+          ["acme", "widgets", "main"] => { head_sha: "aaa", status: "completed", conclusion: "failure",
+            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        )
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: github_source,
+          notifier: notifier
+        )
+
+        collector.poll_ci_once
+
+        assert_empty notifier.sent
+      end
+    end
+  end
+
+  def test_poll_ci_once_notifies_when_ci_transitions_from_passing_to_failing
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        routes = {
+          ["acme", "widgets", "main"] => { head_sha: "aaa", status: "completed", conclusion: "success",
+            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        }
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: FakeGithubSource.new(routes),
+          notifier: notifier
+        )
+
+        collector.poll_ci_once
+        assert_empty notifier.sent, "no notification for the first-ever result"
+
+        routes[["acme", "widgets", "main"]] = { head_sha: "bbb", status: "completed", conclusion: "failure",
+          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        collector.poll_ci_once
+
+        assert_equal 1, notifier.sent.size
+        sent = notifier.sent.first
+        assert_equal "Owlook — acme/widgets", sent.headline
+        assert_includes sent.description, "main"
+        assert_includes sent.description, "failure"
+        assert_equal "critical", sent.urgency
+      end
+    end
+  end
+
+  def test_poll_ci_once_notifies_on_recovery_from_failing_to_passing
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        routes = {
+          ["acme", "widgets", "main"] => { head_sha: "aaa", status: "completed", conclusion: "failure",
+            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        }
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: FakeGithubSource.new(routes),
+          notifier: notifier
+        )
+
+        collector.poll_ci_once
+        assert_empty notifier.sent, "no notification for the first-ever result"
+
+        routes[["acme", "widgets", "main"]] = { head_sha: "bbb", status: "completed", conclusion: "success",
+          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        collector.poll_ci_once
+
+        assert_equal 1, notifier.sent.size
+        sent = notifier.sent.first
+        assert_includes sent.description, "back to normal"
+        assert_equal "normal", sent.urgency
+      end
+    end
+  end
+
+  def test_poll_ci_once_does_not_notify_when_the_state_is_unchanged
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        routes = {
+          ["acme", "widgets", "main"] => { head_sha: "aaa", status: "completed", conclusion: "failure",
+            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        }
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: FakeGithubSource.new(routes),
+          notifier: notifier
+        )
+
+        collector.poll_ci_once # first-ever result, already excluded
+
+        # Still failing, just a newer run of the same conclusion.
+        routes[["acme", "widgets", "main"]] = { head_sha: "bbb", status: "completed", conclusion: "failure",
+          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        collector.poll_ci_once
+
+        assert_empty notifier.sent, "a repeat of the same state should never notify"
+      end
+    end
+  end
+
+  # A branch that has never had a run isn't "nothing to compare against" —
+  # "no_runs" is itself a real, previously observed result (owlook checked
+  # and there was genuinely nothing), so a branch going from that straight
+  # to failing is real news, unlike the still-"checking" case above.
+  def test_poll_ci_once_notifies_when_a_never_run_branch_starts_failing
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        routes = {}
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: FakeGithubSource.new(routes),
+          notifier: notifier
+        )
+
+        collector.poll_ci_once
+        assert_empty notifier.sent, "no_runs is not itself notification-worthy"
+
+        routes[["acme", "widgets", "main"]] = { head_sha: "aaa", status: "completed", conclusion: "failure",
+          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        collector.poll_ci_once
+
+        assert_equal 1, notifier.sent.size
+      end
+    end
+  end
+
+  def test_poll_queues_once_notifies_when_a_destination_transitions_to_failing
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        counts = { ready: 0, failed: 0 }
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new(project_path => ["default"]),
+          queue_source: FakeQueueSource.new(["default"] => counts),
+          notifier: notifier
+        )
+
+        collector.poll_queues_once
+        assert_empty notifier.sent, "no notification for the first-ever check"
+
+        counts[:failed] = 4
+        collector.poll_queues_once
+
+        assert_equal 1, notifier.sent.size
+        sent = notifier.sent.first
+        assert_includes sent.description, "default"
+        assert_equal "critical", sent.urgency
+      end
+    end
+  end
+
   # A silently-skipped destination looks identical to one nobody's checked
   # yet — the widget can't tell "SSH is broken" from "no data so far". Record
   # what happened instead of omitting the row.
@@ -670,6 +845,22 @@ class Owlook::CollectorTest < Minitest::Test
 
     def destinations(project_path)
       @routes.fetch(project_path, [])
+    end
+  end
+
+  # Records every call instead of actually shelling out to
+  # omarchy-notification-send — a Ruby test suite must never pop a real
+  # desktop notification.
+  class FakeNotifier
+    Notification = Struct.new(:headline, :description, :urgency, keyword_init: true)
+    attr_reader :sent
+
+    def initialize
+      @sent = []
+    end
+
+    def notify(headline, description, urgency: "normal")
+      @sent << Notification.new(headline: headline, description: description, urgency: urgency)
     end
   end
 

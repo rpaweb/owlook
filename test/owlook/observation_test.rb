@@ -63,6 +63,18 @@ class Owlook::ObservationTest < Minitest::Test
     assert_raises(ArgumentError) { observation.key }
   end
 
+  def test_bad_state_is_true_for_every_known_bad_state
+    %w[failure timed_out action_required cancelled failing unreachable].each do |state|
+      assert Owlook::Observation.bad_state?(state), "expected #{state.inspect} to be bad"
+    end
+  end
+
+  def test_bad_state_is_false_for_a_good_or_neutral_state
+    %w[success ok in_progress queued no_runs checking].each do |state|
+      refute Owlook::Observation.bad_state?(state), "expected #{state.inspect} not to be bad"
+    end
+  end
+
   def test_to_h_formats_times_as_iso8601
     time = Time.at(1_756_224_000) # fixed instant, no local-tz ambiguity
     observation = Owlook::Observation.new(

@@ -87,13 +87,22 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
 
 Built and covered by tests: config loading, the GitHub Actions source, the
 Kamal destination reader, the Solid Queue source, the unified store + state
-writer, the collector loop, and the systemd unit. The Solid Queue source has
-been verified against a real, currently-running multi-role Kamal deployment
-(both a staging and a production destination), not just fakes in tests —
-that live run is what surfaced the `SSH_AUTH_SOCK` fallback, the
-shell-escaping fix, and the multi-role output handling described above. The
-bar widget is installed and running in a live Quattro shell, confirmed
-visually (bar pill + panel rendering real collector data).
+writer, the collector loop, notifications, and the systemd unit. The Solid
+Queue source has been verified against a real, currently-running multi-role
+Kamal deployment (both a staging and a production destination), not just
+fakes in tests — that live run is what surfaced the `SSH_AUTH_SOCK`
+fallback, the shell-escaping fix, and the multi-role output handling
+described above. The bar widget is installed and running in a live Quattro
+shell, confirmed visually (bar pill + panel rendering real collector data).
+
+**Notifications**: a desktop notification (via `omarchy-notification-send`,
+never a raw `notify-send`) fires on an actual state *transition* — a branch
+or destination going from passing to failing, or back — not on every poll
+that reports the same thing again, and not on the first result a
+branch/destination ever gets (nothing to compare it to yet, and "this thing
+that's always been broken is broken" isn't news). `no_runs` still counts as
+a real prior result: a branch going from "nothing has ever run" straight to
+failing does notify.
 
 Not built yet:
 
@@ -103,7 +112,6 @@ Not built yet:
   just not deploy status.
 - Sidekiq, behind the same source interface as Solid Queue — only if it
   turns out to be needed; not planned as a stub.
-- **Notifications** on state change.
 
 Open architecture question, not yet decided: **GitHub is the only Git host
 owlook knows about.** `Sources::GitHub`, `GithubClient`, and `GitRepo`'s

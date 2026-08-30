@@ -27,6 +27,15 @@ module Owlook
       @entries.key?(key)
     end
 
+    # The Observation currently stored for a key, or nil — a read before
+    # #record's write, so a caller can compare what a new observation is
+    # about to replace (see Collector#notify_on_transition, which needs
+    # the previous state to know whether this is an actual change worth a
+    # desktop notification).
+    def current(key)
+      @entries[key]
+    end
+
     # Removes every stored observation of the given kind. Normal polling
     # only ever adds or replaces, never deletes — this exists for the one
     # case where an entire kind needs to start over: the widget's "all

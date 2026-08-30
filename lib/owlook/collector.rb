@@ -30,6 +30,7 @@ module Owlook
       kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new,
       workflows_source: Sources::Workflows.new,
       settings_loader: -> { WidgetSettings.load },
+      notifier: Notifier.new,
       sleeper: ->(seconds) { sleep(seconds) }, logger: nil)
       @config_loader = config_loader
       @store = store
@@ -39,6 +40,7 @@ module Owlook
       @queue_source = queue_source
       @workflows_source = workflows_source
       @settings_loader = settings_loader
+      @notifier = notifier
       @sleeper = sleeper
       @logger = logger
       @known_all_branches = nil
@@ -229,7 +231,7 @@ module Owlook
     end
 
     def record_ci_observation(project, branch, state:, version:, details:, timestamp:, author:)
-      @store.record(Observation.new(
+      record_and_notify(Observation.new(
         project: project,
         kind: "ci",
         branch: branch,
@@ -360,7 +362,7 @@ module Owlook
     end
 
     def record_queue_observation(project, destination, state:, details:)
-      @store.record(Observation.new(
+      record_and_notify(Observation.new(
         project: project,
         kind: "queue",
         branch: nil,
@@ -373,6 +375,45 @@ module Owlook
         source: "kamal-exec",
         observed_at: Time.now
       ))
+    end
+
+    # Every *real* CI/queue result (never the "checking" placeholder or the
+    # ci_timing/queue_timing rows — those go through @store.record
+    # directly) passes through here, so a state change can be compared
+    # against whatever it's replacing before it's gone.
+    def record_and_notify(observation)
+      previous = @store.current(observation.key)
+      @store.record(observation)
+      notify_on_transition(observation, previous)
+    end
+
+    # A desktop notification only for an actual transition between two
+    # *real* results — not the first result ever seen for a branch/
+    # destination (previous is nil, or still the "checking" placeholder:
+    # nothing to compare against yet, and "this thing that's always been
+    # broken is broken" isn't news), and not a no-op poll that reports the
+    # same state again (previous.state == observation.state). "no_runs" is
+    # a real prior result despite not being a check — a branch going from
+    # "nothing has ever run" to "it just failed" is exactly the kind of
+    # change worth surfacing.
+    def notify_on_transition(observation, previous)
+      return if previous.nil? || previous.state == "checking"
+      return if previous.state == observation.state
+
+      was_bad = Observation.bad_state?(previous.state)
+      now_bad = Observation.bad_state?(observation.state)
+      return if was_bad == now_bad
+
+      location = observation.kind == "ci" ? observation.branch : observation.destination
+      what = observation.kind == "ci" ? "CI" : "queue"
+      headline = "Owlook — #{observation.project}"
+
+      if now_bad
+        @notifier.notify(headline, "#{what} #{location}: #{observation.state.tr("_", " ")}",
+          urgency: "critical")
+      else
+        @notifier.notify(headline, "#{what} #{location} back to normal", urgency: "normal")
+      end
     end
 
     def write_snapshot

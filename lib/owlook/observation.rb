@@ -40,6 +40,17 @@ module Owlook
     :timestamp, :author, :source, :observed_at,
     keyword_init: true
   ) do
+    # Kept in sync by hand with Model.js's own BAD_STATES — the widget
+    # decides what reads as "bad" for coloring, Collector decides the same
+    # thing for whether a state change is worth a desktop notification
+    # (see Collector#notify_on_transition). Same vocabulary, different
+    # language, no shared source of truth across the process boundary.
+    BAD_STATES = %w[failure timed_out action_required cancelled failing unreachable].freeze
+
+    def self.bad_state?(state)
+      BAD_STATES.include?(state)
+    end
+
     def initialize(**kwargs)
       super(**{ details: {} }.merge(kwargs))
     end
