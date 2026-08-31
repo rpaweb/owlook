@@ -19,7 +19,7 @@ module Owlook
     class Queue
       class CommandFailedError < StandardError
         def initialize(command, status, stderr)
-          super("kamal app exec failed (exit #{status.exitstatus}): #{command.join(" ")}\n#{stderr}")
+          super("kamal app exec failed (exit #{status.exitstatus}): #{command.join(' ')}\n#{stderr}")
         end
       end
 

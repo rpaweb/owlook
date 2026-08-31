@@ -16,6 +16,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.2"
   spec.homepage = "https://github.com/rpaweb/owlook"
   spec.metadata["source_code_uri"] = spec.homepage
+  spec.metadata["rubygems_mfa_required"] = "true"
 
   spec.files = Dir["lib/**/*.rb", "bin/*", "shell/**/*", "assets/**/*", "README.md", "LICENSE"]
   spec.require_paths = ["lib"]

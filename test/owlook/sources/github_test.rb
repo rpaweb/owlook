@@ -6,7 +6,7 @@ class Owlook::Sources::GitHubTest < Minitest::Test
   RUNS_RESPONSE = {
     "workflow_runs" => [
       {
-        "id" => 32993198471,
+        "id" => 32_993_198_471,
         "status" => "completed",
         "conclusion" => "success",
         "head_branch" => "quattro",
@@ -44,7 +44,7 @@ class Owlook::Sources::GitHubTest < Minitest::Test
 
     run = source.latest_run(owner: "acme", repo: "widgets", branch: "quattro")
 
-    assert_equal 32993198471, run[:id]
+    assert_equal 32_993_198_471, run[:id]
     assert_equal "completed", run[:status]
     assert_equal "success", run[:conclusion]
     assert_equal "0ae1694830b6bd9511042fe1b89a0062d8c083cb", run[:head_sha]
@@ -54,6 +54,7 @@ class Owlook::Sources::GitHubTest < Minitest::Test
 
     assert_equal 1, run[:jobs].size
     job = run[:jobs].first
+
     assert_equal "copilot-pull-request-reviewer", job[:name]
     assert_equal "success", job[:conclusion]
     assert_equal 2, job[:steps].size
@@ -71,7 +72,7 @@ class Owlook::Sources::GitHubTest < Minitest::Test
     source = Owlook::Sources::GitHub.new(client: client)
 
     assert_equal ["master", "dependabot/bundler/rails-8.1"],
-      source.branches_with_runs(owner: "acme", repo: "widgets")
+                 source.branches_with_runs(owner: "acme", repo: "widgets")
   end
 
   def test_branches_with_runs_respects_a_custom_limit
@@ -98,8 +99,6 @@ class Owlook::Sources::GitHubTest < Minitest::Test
 
     assert_nil source.latest_run(owner: "acme", repo: "widgets", branch: "quattro")
   end
-
-  private
 
   # Routes #get(path) to canned responses. Raises loudly on an unexpected
   # path instead of returning nil, so a wrong URL fails the test clearly.

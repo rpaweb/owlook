@@ -119,11 +119,13 @@ class Owlook::Sources::QueueTest < Minitest::Test
     source.status(project_path: "/tmp/widgets", destination: "default")
 
     reconstructed = Shellwords.split(shell.last_command.join(" "))
+
     assert_equal Owlook::Sources::Queue::RUNNER_CODE, reconstructed.last
   end
 
   def test_command_failed_error_includes_stderr_so_failures_are_debuggable
-    error = Owlook::Sources::Queue::CommandFailedError.new(["kamal", "app", "exec"], FakeStatus.new(1), "No container found")
+    error = Owlook::Sources::Queue::CommandFailedError.new(%w[kamal app exec], FakeStatus.new(1),
+                                                           "No container found")
 
     assert_includes error.message, "No container found"
   end
@@ -154,8 +156,6 @@ class Owlook::Sources::QueueTest < Minitest::Test
 
     assert_nil sock
   end
-
-  private
 
   class FakeShell
     attr_reader :last_command, :last_chdir

@@ -16,7 +16,7 @@ module Owlook
           File.basename(file, ".yml").sub(/\Adeploy\./, "")
         end
 
-        has_servers?(base) ? ["default"] + named : named
+        servers?(base) ? ["default"] + named : named
       end
 
       private
@@ -26,7 +26,7 @@ module Owlook
       # destination, never deployed alone — confirmed against a real project
       # where reporting "default" for it would have been a destination
       # nothing could ever answer for.
-      def has_servers?(deploy_yml_path)
+      def servers?(deploy_yml_path)
         config = YAML.safe_load_file(deploy_yml_path, aliases: true) || {}
         !!config["servers"]
       rescue Psych::SyntaxError

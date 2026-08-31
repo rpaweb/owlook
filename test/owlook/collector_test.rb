@@ -10,18 +10,21 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         github_source = FakeGithubSource.new({
-          ["acme", "widgets", "main"] => {
-            head_sha: "abc123", status: "completed", conclusion: "success",
-            updated_at: "2026-08-26T12:00:00Z", actor: "rafael",
-            jobs: [
-              { name: "test", status: "completed", conclusion: "success", steps: [] },
-              { name: "lint", status: "completed", conclusion: "success", steps: [] },
-              { name: "deploy", status: "completed", conclusion: "skipped", steps: [] }
-            ]
-          }
-        })
+                                               %w[acme widgets main] => {
+                                                 head_sha: "abc123", status: "completed", conclusion: "success",
+                                                 updated_at: "2026-08-26T12:00:00Z", actor: "rafael",
+                                                 jobs: [
+                                                   { name: "test", status: "completed", conclusion: "success",
+                                                     steps: [] },
+                                                   { name: "lint", status: "completed", conclusion: "success",
+                                                     steps: [] },
+                                                   { name: "deploy", status: "completed", conclusion: "skipped",
+                                                     steps: [] }
+                                                 ]
+                                               }
+                                             })
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source
@@ -31,8 +34,10 @@ class Owlook::CollectorTest < Minitest::Test
 
         on_disk = JSON.parse(File.read(state_path))
         ci_rows = on_disk.select { |e| e["kind"] == "ci" }
+
         assert_equal 1, ci_rows.size
         entry = ci_rows.first
+
         assert_equal "acme/widgets", entry["project"]
         assert_equal "ci", entry["kind"]
         assert_equal "main", entry["branch"]
@@ -48,6 +53,7 @@ class Owlook::CollectorTest < Minitest::Test
         # A project-level "ci_timing" row rides along too — how long this
         # cycle actually took (see Collector#record_timing).
         timing = on_disk.find { |e| e["kind"] == "ci_timing" }
+
         assert timing, "expected a ci_timing row"
         assert_kind_of Numeric, timing["details"]["duration_seconds"]
       end
@@ -63,11 +69,11 @@ class Owlook::CollectorTest < Minitest::Test
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       writer = RecordingWriter.new
       github_source = FakeGithubSource.new(
-        ["acme", "widgets", "main"] => { head_sha: "abc123", status: "completed", conclusion: "success",
-          updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        %w[acme widgets main] => { head_sha: "abc123", status: "completed", conclusion: "success",
+                                   updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
       )
       collector = Owlook::Collector.new(
-        config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+        config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
         store: Owlook::Store.new,
         writer: writer,
         github_source: github_source
@@ -76,9 +82,11 @@ class Owlook::CollectorTest < Minitest::Test
       collector.poll_ci_once
 
       checking_writes = writer.snapshots.select { |snap| snap.any? { |row| row[:state] == "checking" } }
+
       assert_equal 1, checking_writes.size, "expected exactly one write with a checking placeholder"
 
       final = writer.snapshots.last
+
       assert_equal "success", final.find { |row| row[:branch] == "main" }[:state]
     end
   end
@@ -87,11 +95,11 @@ class Owlook::CollectorTest < Minitest::Test
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       writer = RecordingWriter.new
       github_source = FakeGithubSource.new(
-        ["acme", "widgets", "main"] => { head_sha: "abc123", status: "completed", conclusion: "success",
-          updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        %w[acme widgets main] => { head_sha: "abc123", status: "completed", conclusion: "success",
+                                   updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
       )
       collector = Owlook::Collector.new(
-        config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+        config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
         store: Owlook::Store.new,
         writer: writer,
         github_source: github_source
@@ -101,6 +109,7 @@ class Owlook::CollectorTest < Minitest::Test
       collector.poll_ci_once
 
       checking_writes = writer.snapshots.select { |snap| snap.any? { |row| row[:state] == "checking" } }
+
       assert_equal 1, checking_writes.size, "a known branch should never be reset to checking"
     end
   end
@@ -117,11 +126,11 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         github_source = FakeGithubSource.new(
-          ["acme", "widgets", "main"] => { head_sha: "abc123", status: "completed", conclusion: "success",
-            updated_at: "2020-01-01T00:00:00Z", actor: "rafael" } # years old, well before "now"
+          %w[acme widgets main] => { head_sha: "abc123", status: "completed", conclusion: "success",
+                                     updated_at: "2020-01-01T00:00:00Z", actor: "rafael" } # years old, well before "now"
         )
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source
@@ -131,6 +140,7 @@ class Owlook::CollectorTest < Minitest::Test
 
         on_disk = JSON.parse(File.read(state_path))
         entry = on_disk.find { |row| row["branch"] == "main" }
+
         assert_equal "success", entry["state"]
         assert_equal "abc123", entry["version"]
       end
@@ -146,7 +156,7 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}) # no runs for any project
@@ -156,6 +166,7 @@ class Owlook::CollectorTest < Minitest::Test
 
         on_disk = JSON.parse(File.read(state_path))
         entry = on_disk.find { |e| e["kind"] == "ci" }
+
         assert_equal "acme/widgets", entry["project"]
         assert_equal "ci", entry["kind"]
         assert_equal "main", entry["branch"]
@@ -175,13 +186,13 @@ class Owlook::CollectorTest < Minitest::Test
       with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |good_project|
         state_path = File.join(dir, "state.json")
         github_source = FakeGithubSource.new(
-          ["acme", "widgets", "main"] => {
+          %w[acme widgets main] => {
             head_sha: "abc123", status: "completed", conclusion: "success",
             updated_at: "2026-08-26T12:00:00Z", actor: "rafael"
           }
         )
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [no_remote_project, good_project]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [no_remote_project, good_project] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source
@@ -191,6 +202,7 @@ class Owlook::CollectorTest < Minitest::Test
 
         on_disk = JSON.parse(File.read(state_path))
         ci_rows = on_disk.select { |e| e["kind"] == "ci" }
+
         assert_equal 1, ci_rows.size
         assert_equal "acme/widgets", ci_rows.first["project"]
       end
@@ -202,11 +214,11 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}),
-          kamal_source: FakeKamalSource.new(project_path => ["default", "staging"]),
+          kamal_source: FakeKamalSource.new(project_path => %w[default staging]),
           queue_source: FakeQueueSource.new(
             ["default"] => { ready: 2, failed: 0 },
             ["staging"] => { ready: 0, failed: 3 }
@@ -217,9 +229,11 @@ class Owlook::CollectorTest < Minitest::Test
 
         on_disk = JSON.parse(File.read(state_path))
         queue_rows = on_disk.select { |e| e["kind"] == "queue" }.sort_by { |e| e["destination"] }
+
         assert_equal 2, queue_rows.size
 
         default_row, staging_row = queue_rows
+
         assert_equal "acme/widgets", default_row["project"]
         assert_equal "queue", default_row["kind"]
         assert_equal "ok", default_row["state"]
@@ -231,6 +245,7 @@ class Owlook::CollectorTest < Minitest::Test
         # A project-level "queue_timing" row rides along too — how long
         # this cycle actually took (see Collector#record_timing).
         timing = on_disk.find { |e| e["kind"] == "queue_timing" }
+
         assert timing, "expected a queue_timing row"
         assert_kind_of Numeric, timing["details"]["duration_seconds"]
       end
@@ -247,7 +262,7 @@ class Owlook::CollectorTest < Minitest::Test
         state_path = File.join(state_dir, "state.json")
         logged = []
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}),
@@ -259,7 +274,7 @@ class Owlook::CollectorTest < Minitest::Test
         collector.poll_queues_once
 
         assert logged.any? { |m| m.match?(/queue poll cycle finished in \d+(\.\d+)?s/) },
-          "expected a cycle-duration log line, got: #{logged.inspect}"
+               "expected a cycle-duration log line, got: #{logged.inspect}"
       end
     end
   end
@@ -273,7 +288,7 @@ class Owlook::CollectorTest < Minitest::Test
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       writer = RecordingWriter.new
       collector = Owlook::Collector.new(
-        config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+        config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
         store: Owlook::Store.new,
         writer: writer,
         github_source: FakeGithubSource.new({}),
@@ -284,9 +299,11 @@ class Owlook::CollectorTest < Minitest::Test
       collector.poll_queues_once
 
       checking_writes = writer.snapshots.select { |snap| snap.any? { |row| row[:state] == "checking" } }
+
       assert_equal 1, checking_writes.size, "expected exactly one write with a checking placeholder"
 
       final = writer.snapshots.last
+
       assert_equal "ok", final.find { |row| row[:destination] == "default" }[:state]
     end
   end
@@ -299,7 +316,7 @@ class Owlook::CollectorTest < Minitest::Test
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       writer = RecordingWriter.new
       collector = Owlook::Collector.new(
-        config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+        config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
         store: Owlook::Store.new,
         writer: writer,
         github_source: FakeGithubSource.new({}),
@@ -311,6 +328,7 @@ class Owlook::CollectorTest < Minitest::Test
       collector.poll_queues_once
 
       checking_writes = writer.snapshots.select { |snap| snap.any? { |row| row[:state] == "checking" } }
+
       assert_equal 1, checking_writes.size, "a known destination should never be reset to checking"
     end
   end
@@ -322,7 +340,7 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}),
@@ -331,7 +349,7 @@ class Owlook::CollectorTest < Minitest::Test
 
         collector.poll_queues_once
 
-        refute File.exist?(state_path), "nothing to report, nothing to write"
+        refute_path_exists state_path, "nothing to report, nothing to write"
       end
     end
   end
@@ -345,24 +363,25 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         github_source = FakeGithubSource.new(
-          ["acme", "widgets", "master"] => { head_sha: "aaa111", status: "completed", conclusion: "success",
-            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
-          ["acme", "widgets", "staging"] => { head_sha: "bbb222", status: "completed", conclusion: "failure",
-            updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+          %w[acme widgets master] => { head_sha: "aaa111", status: "completed", conclusion: "success",
+                                       updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
+          %w[acme widgets staging] => { head_sha: "bbb222", status: "completed", conclusion: "failure",
+                                        updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
         )
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source,
-          workflows_source: FakeWorkflowsSource.new(project_path => ["master", "staging"])
+          workflows_source: FakeWorkflowsSource.new(project_path => %w[master staging])
         )
 
         collector.poll_ci_once
 
         ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }.sort_by { |e| e["branch"] }
+
         assert_equal 2, ci_rows.size
-        assert_equal ["master", "staging"], ci_rows.map { |e| e["branch"] }
+        assert_equal(%w[master staging], ci_rows.map { |e| e["branch"] })
         assert_equal "success", ci_rows.find { |e| e["branch"] == "master" }["state"]
         assert_equal "failure", ci_rows.find { |e| e["branch"] == "staging" }["state"]
       end
@@ -378,11 +397,11 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         github_source = FakeGithubSource.new(
-          ["acme", "widgets", "main"] => { head_sha: "abc123", status: "completed", conclusion: "success",
-            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+          %w[acme widgets main] => { head_sha: "abc123", status: "completed", conclusion: "success",
+                                     updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
         )
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source,
@@ -392,6 +411,7 @@ class Owlook::CollectorTest < Minitest::Test
         collector.poll_ci_once
 
         ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }
+
         assert_equal 1, ci_rows.size
         assert_equal "main", ci_rows.first["branch"]
       end
@@ -407,26 +427,27 @@ class Owlook::CollectorTest < Minitest::Test
         state_path = File.join(state_dir, "state.json")
         github_source = FakeGithubSource.new(
           {
-            ["acme", "widgets", "master"] => { head_sha: "aaa111", status: "completed", conclusion: "success",
-              updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
+            %w[acme widgets master] => { head_sha: "aaa111", status: "completed", conclusion: "success",
+                                         updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
             ["acme", "widgets", "dependabot/bundler/rails-8.1"] => { head_sha: "ccc333", status: "completed",
-              conclusion: "success", updated_at: "2026-08-26T12:10:00Z", actor: "dependabot[bot]" }
+                                                                     conclusion: "success", updated_at: "2026-08-26T12:10:00Z", actor: "dependabot[bot]" }
           },
-          { ["acme", "widgets"] => ["master", "dependabot/bundler/rails-8.1"] }
+          { %w[acme widgets] => ["master", "dependabot/bundler/rails-8.1"] }
         )
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source,
-          workflows_source: FakeWorkflowsSource.new(project_path => ["master", "staging"]),
+          workflows_source: FakeWorkflowsSource.new(project_path => %w[master staging]),
           settings_loader: -> { FakeSettings.new(all_branches: true) }
         )
 
         collector.poll_ci_once
 
         ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }.sort_by { |e| e["branch"] }
-        assert_equal ["dependabot/bundler/rails-8.1", "master"], ci_rows.map { |e| e["branch"] }
+
+        assert_equal(["dependabot/bundler/rails-8.1", "master"], ci_rows.map { |e| e["branch"] })
       end
     end
   end
@@ -438,11 +459,11 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         github_source = FakeGithubSource.new(
-          ["acme", "widgets", "staging"] => { head_sha: "bbb222", status: "completed", conclusion: "success",
-            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+          %w[acme widgets staging] => { head_sha: "bbb222", status: "completed", conclusion: "success",
+                                        updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
         )
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source,
@@ -453,6 +474,7 @@ class Owlook::CollectorTest < Minitest::Test
         collector.poll_ci_once
 
         ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }
+
         assert_equal 1, ci_rows.size
         assert_equal "staging", ci_rows.first["branch"]
       end
@@ -468,16 +490,16 @@ class Owlook::CollectorTest < Minitest::Test
         state_path = File.join(state_dir, "state.json")
         github_source = FakeGithubSource.new(
           {
-            ["acme", "widgets", "master"] => { head_sha: "aaa111", status: "completed", conclusion: "success",
-              updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
+            %w[acme widgets master] => { head_sha: "aaa111", status: "completed", conclusion: "success",
+                                         updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
             ["acme", "widgets", "dependabot/bundler/rails-8.1"] => { head_sha: "ccc333", status: "completed",
-              conclusion: "success", updated_at: "2026-08-26T12:10:00Z", actor: "dependabot[bot]" }
+                                                                     conclusion: "success", updated_at: "2026-08-26T12:10:00Z", actor: "dependabot[bot]" }
           },
-          { ["acme", "widgets"] => ["master", "dependabot/bundler/rails-8.1"] }
+          { %w[acme widgets] => ["master", "dependabot/bundler/rails-8.1"] }
         )
         all_branches = false
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source,
@@ -486,16 +508,19 @@ class Owlook::CollectorTest < Minitest::Test
         )
 
         collector.poll_ci_once
+
         assert_equal ["master"], ci_branches(state_path)
 
         all_branches = true
         collector.poll_ci_once
+
         assert_equal ["dependabot/bundler/rails-8.1", "master"], ci_branches(state_path)
 
         all_branches = false
         collector.poll_ci_once
+
         assert_equal ["master"], ci_branches(state_path),
-          "the dependabot branch should be forgotten, not left over from all-branches mode"
+                     "the dependabot branch should be forgotten, not left over from all-branches mode"
       end
     end
   end
@@ -507,11 +532,11 @@ class Owlook::CollectorTest < Minitest::Test
         # Already failing the very first time owlook ever checks it —
         # not news, since there's nothing to compare it against yet.
         github_source = FakeGithubSource.new(
-          ["acme", "widgets", "main"] => { head_sha: "aaa", status: "completed", conclusion: "failure",
-            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+          %w[acme widgets main] => { head_sha: "aaa", status: "completed", conclusion: "failure",
+                                     updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
         )
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
           github_source: github_source,
@@ -530,11 +555,11 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         notifier = FakeNotifier.new
         routes = {
-          ["acme", "widgets", "main"] => { head_sha: "aaa", status: "completed", conclusion: "success",
-            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+          %w[acme widgets main] => { head_sha: "aaa", status: "completed", conclusion: "success",
+                                     updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
         }
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
           github_source: FakeGithubSource.new(routes),
@@ -542,14 +567,16 @@ class Owlook::CollectorTest < Minitest::Test
         )
 
         collector.poll_ci_once
+
         assert_empty notifier.sent, "no notification for the first-ever result"
 
-        routes[["acme", "widgets", "main"]] = { head_sha: "bbb", status: "completed", conclusion: "failure",
-          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        routes[%w[acme widgets main]] = { head_sha: "bbb", status: "completed", conclusion: "failure",
+                                          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
         collector.poll_ci_once
 
         assert_equal 1, notifier.sent.size
         sent = notifier.sent.first
+
         assert_equal "Owlook — acme/widgets", sent.headline
         assert_includes sent.description, "main"
         assert_includes sent.description, "failure"
@@ -563,11 +590,11 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         notifier = FakeNotifier.new
         routes = {
-          ["acme", "widgets", "main"] => { head_sha: "aaa", status: "completed", conclusion: "failure",
-            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+          %w[acme widgets main] => { head_sha: "aaa", status: "completed", conclusion: "failure",
+                                     updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
         }
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
           github_source: FakeGithubSource.new(routes),
@@ -575,14 +602,16 @@ class Owlook::CollectorTest < Minitest::Test
         )
 
         collector.poll_ci_once
+
         assert_empty notifier.sent, "no notification for the first-ever result"
 
-        routes[["acme", "widgets", "main"]] = { head_sha: "bbb", status: "completed", conclusion: "success",
-          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        routes[%w[acme widgets main]] = { head_sha: "bbb", status: "completed", conclusion: "success",
+                                          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
         collector.poll_ci_once
 
         assert_equal 1, notifier.sent.size
         sent = notifier.sent.first
+
         assert_includes sent.description, "back to normal"
         assert_equal "normal", sent.urgency
       end
@@ -594,11 +623,11 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         notifier = FakeNotifier.new
         routes = {
-          ["acme", "widgets", "main"] => { head_sha: "aaa", status: "completed", conclusion: "failure",
-            updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+          %w[acme widgets main] => { head_sha: "aaa", status: "completed", conclusion: "failure",
+                                     updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
         }
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
           github_source: FakeGithubSource.new(routes),
@@ -608,8 +637,8 @@ class Owlook::CollectorTest < Minitest::Test
         collector.poll_ci_once # first-ever result, already excluded
 
         # Still failing, just a newer run of the same conclusion.
-        routes[["acme", "widgets", "main"]] = { head_sha: "bbb", status: "completed", conclusion: "failure",
-          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        routes[%w[acme widgets main]] = { head_sha: "bbb", status: "completed", conclusion: "failure",
+                                          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
         collector.poll_ci_once
 
         assert_empty notifier.sent, "a repeat of the same state should never notify"
@@ -627,7 +656,7 @@ class Owlook::CollectorTest < Minitest::Test
         notifier = FakeNotifier.new
         routes = {}
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
           github_source: FakeGithubSource.new(routes),
@@ -635,10 +664,11 @@ class Owlook::CollectorTest < Minitest::Test
         )
 
         collector.poll_ci_once
+
         assert_empty notifier.sent, "no_runs is not itself notification-worthy"
 
-        routes[["acme", "widgets", "main"]] = { head_sha: "aaa", status: "completed", conclusion: "failure",
-          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        routes[%w[acme widgets main]] = { head_sha: "aaa", status: "completed", conclusion: "failure",
+                                          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
         collector.poll_ci_once
 
         assert_equal 1, notifier.sent.size
@@ -652,7 +682,7 @@ class Owlook::CollectorTest < Minitest::Test
         notifier = FakeNotifier.new
         counts = { ready: 0, failed: 0 }
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
           github_source: FakeGithubSource.new({}),
@@ -662,6 +692,7 @@ class Owlook::CollectorTest < Minitest::Test
         )
 
         collector.poll_queues_once
+
         assert_empty notifier.sent, "no notification for the first-ever check"
 
         counts[:failed] = 4
@@ -669,6 +700,7 @@ class Owlook::CollectorTest < Minitest::Test
 
         assert_equal 1, notifier.sent.size
         sent = notifier.sent.first
+
         assert_includes sent.description, "default"
         assert_equal "critical", sent.urgency
       end
@@ -683,20 +715,23 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => [project_path]}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}),
-          kamal_source: FakeKamalSource.new(project_path => ["default", "staging"]),
+          kamal_source: FakeKamalSource.new(project_path => %w[default staging]),
           queue_source: FakeQueueSource.new(["default"] => { ready: 2, failed: 0 }) # "staging" not stubbed -> fails
         )
 
         collector.poll_queues_once
 
-        queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }.sort_by { |e| e["destination"] }
+        queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }
+        queue_rows = queue_rows.sort_by { |e| e["destination"] }
+
         assert_equal 2, queue_rows.size
 
         default_row, staging_row = queue_rows
+
         assert_equal "ok", default_row["state"]
 
         assert_equal "unreachable", staging_row["state"]
@@ -715,26 +750,28 @@ class Owlook::CollectorTest < Minitest::Test
       Dir.mktmpdir do |state_dir|
         state_path = File.join(state_dir, "state.json")
         github_source = FakeGithubSource.new(
-          ["acme", "widgets", "main"] => {
+          %w[acme widgets main] => {
             head_sha: "abc123", status: "completed", conclusion: "success",
             updated_at: "2026-08-26T12:00:00Z", actor: "rafael"
           }
         )
         projects = []
         collector = Owlook::Collector.new(
-          config_loader: -> { Owlook::Config.new({"projects" => projects}) },
+          config_loader: -> { Owlook::Config.new({ "projects" => projects }) },
           store: Owlook::Store.new,
           writer: Owlook::StateWriter.new(state_path),
           github_source: github_source
         )
 
         collector.poll_ci_once
-        refute File.exist?(state_path), "nothing configured yet, nothing to write"
+
+        refute_path_exists state_path, "nothing configured yet, nothing to write"
 
         projects << project_path
         collector.poll_ci_once
 
         ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }
+
         assert_equal 1, ci_rows.size
         assert_equal "acme/widgets", ci_rows.first["project"]
       end
@@ -748,7 +785,10 @@ class Owlook::CollectorTest < Minitest::Test
     call = -1
     sleeps = []
     collector = build_collector(
-      settings_loader: -> { call += 1; FakeSettings.new(all_branches: values[[call, values.size - 1].min]) },
+      settings_loader: lambda {
+        call += 1
+        FakeSettings.new(all_branches: values[[call, values.size - 1].min])
+      },
       sleeper: ->(seconds) { sleeps << seconds }
     )
 
@@ -784,12 +824,10 @@ class Owlook::CollectorTest < Minitest::Test
   # need for a real tmpdir here.
   def build_collector(**overrides)
     Owlook::Collector.new(
-      **{
-        config_loader: -> { Owlook::Config.new({"projects" => []}) },
-        store: Owlook::Store.new,
-        writer: Owlook::StateWriter.new("/tmp/owlook-test-unused-state.json"),
-        github_source: FakeGithubSource.new({})
-      }.merge(overrides)
+      config_loader: -> { Owlook::Config.new({ "projects" => [] }) },
+      store: Owlook::Store.new,
+      writer: Owlook::StateWriter.new("/tmp/owlook-test-unused-state.json"),
+      github_source: FakeGithubSource.new({}), **overrides
     )
   end
 

@@ -7,7 +7,7 @@ require "json"
 class Owlook::WidgetSettingsTest < Minitest::Test
   def test_all_branches_is_false_by_default
     with_shell_json({}) do |path|
-      refute Owlook::WidgetSettings.load(path: path).all_branches?
+      refute_predicate Owlook::WidgetSettings.load(path: path), :all_branches?
     end
   end
 
@@ -15,8 +15,9 @@ class Owlook::WidgetSettingsTest < Minitest::Test
     shell_json = { "bar" => { "layout" => { "right" => [
       { "id" => "owlook.status", "allBranches" => true }
     ] } } }
+
     with_shell_json(shell_json) do |path|
-      assert Owlook::WidgetSettings.load(path: path).all_branches?
+      assert_predicate Owlook::WidgetSettings.load(path: path), :all_branches?
     end
   end
 
@@ -28,8 +29,10 @@ class Owlook::WidgetSettingsTest < Minitest::Test
       shell_json = { "bar" => { "layout" => { side => [
         { "id" => "owlook.status", "allBranches" => true }
       ] } } }
+
       with_shell_json(shell_json) do |path|
-        assert Owlook::WidgetSettings.load(path: path).all_branches?, "expected to find the entry under #{side}"
+        assert_predicate Owlook::WidgetSettings.load(path: path), :all_branches?,
+                         "expected to find the entry under #{side}"
       end
     end
   end
@@ -38,8 +41,9 @@ class Owlook::WidgetSettingsTest < Minitest::Test
   # the widget isn't in the bar layout at all.
   def test_all_branches_finds_the_entry_in_top_level_plugins
     shell_json = { "plugins" => [{ "id" => "owlook.status", "allBranches" => true }] }
+
     with_shell_json(shell_json) do |path|
-      assert Owlook::WidgetSettings.load(path: path).all_branches?
+      assert_predicate Owlook::WidgetSettings.load(path: path), :all_branches?
     end
   end
 
@@ -47,20 +51,22 @@ class Owlook::WidgetSettingsTest < Minitest::Test
     shell_json = { "bar" => { "layout" => { "right" => [
       { "id" => "omarchy.clock", "allBranches" => true }
     ] } } }
+
     with_shell_json(shell_json) do |path|
-      refute Owlook::WidgetSettings.load(path: path).all_branches?
+      refute_predicate Owlook::WidgetSettings.load(path: path), :all_branches?
     end
   end
 
   def test_load_defaults_when_the_file_does_not_exist
-    refute Owlook::WidgetSettings.load(path: "/nonexistent/shell.json").all_branches?
+    refute_predicate Owlook::WidgetSettings.load(path: "/nonexistent/shell.json"), :all_branches?
   end
 
   def test_load_defaults_when_the_file_is_not_valid_json
     Dir.mktmpdir do |dir|
       path = File.join(dir, "shell.json")
       File.write(path, "{not valid json")
-      refute Owlook::WidgetSettings.load(path: path).all_branches?
+
+      refute_predicate Owlook::WidgetSettings.load(path: path), :all_branches?
     end
   end
 

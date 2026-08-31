@@ -15,13 +15,14 @@ class Owlook::IntegrationTest < Minitest::Test
       writer = Owlook::StateWriter.new(path)
 
       store.record(Owlook::Observation.new(
-        project: "acme/widgets", kind: "ci", branch: "main", destination: nil,
-        version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
-        source: "github", observed_at: Time.at(150)
-      ))
+                     project: "acme/widgets", kind: "ci", branch: "main", destination: nil,
+                     version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
+                     source: "github", observed_at: Time.at(150)
+                   ))
       writer.write(store.snapshot)
 
       on_disk = JSON.parse(File.read(path))
+
       assert_equal 1, on_disk.size
       assert_equal "acme/widgets", on_disk.first["project"]
       assert_equal "success", on_disk.first["state"]
@@ -62,20 +63,21 @@ class Owlook::IntegrationTest < Minitest::Test
       # destination) — e.g. a Kamal hook and a future SSH reconciliation
       # check, both about the "production" deploy destination.
       store.record(Owlook::Observation.new(
-        project: "acme/widgets", kind: "deploy", branch: nil, destination: "production",
-        version: "abc123", state: "running", timestamp: Time.at(100), author: "rafael",
-        source: "kamal-hook", observed_at: Time.at(150)
-      ))
+                     project: "acme/widgets", kind: "deploy", branch: nil, destination: "production",
+                     version: "abc123", state: "running", timestamp: Time.at(100), author: "rafael",
+                     source: "kamal-hook", observed_at: Time.at(150)
+                   ))
       writer.write(store.snapshot)
 
       store.record(Owlook::Observation.new(
-        project: "acme/widgets", kind: "deploy", branch: nil, destination: "production",
-        version: "abc123", state: "success", timestamp: Time.at(200), author: "rafael",
-        source: "ssh-check", observed_at: Time.at(250)
-      ))
+                     project: "acme/widgets", kind: "deploy", branch: nil, destination: "production",
+                     version: "abc123", state: "success", timestamp: Time.at(200), author: "rafael",
+                     source: "ssh-check", observed_at: Time.at(250)
+                   ))
       writer.write(store.snapshot)
 
       on_disk = JSON.parse(File.read(path))
+
       assert_equal "success", on_disk.first["state"]
       assert_equal "ssh-check", on_disk.first["source"]
     end
@@ -88,18 +90,19 @@ class Owlook::IntegrationTest < Minitest::Test
       writer = Owlook::StateWriter.new(path)
 
       store.record(Owlook::Observation.new(
-        project: "acme/widgets", kind: "ci", branch: "main", destination: nil,
-        version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
-        source: "github", observed_at: Time.at(150)
-      ))
+                     project: "acme/widgets", kind: "ci", branch: "main", destination: nil,
+                     version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
+                     source: "github", observed_at: Time.at(150)
+                   ))
       store.record(Owlook::Observation.new(
-        project: "acme/widgets", kind: "deploy", branch: nil, destination: "production",
-        version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
-        source: "kamal-hook", observed_at: Time.at(150)
-      ))
+                     project: "acme/widgets", kind: "deploy", branch: nil, destination: "production",
+                     version: "abc123", state: "success", timestamp: Time.at(100), author: "rafael",
+                     source: "kamal-hook", observed_at: Time.at(150)
+                   ))
       writer.write(store.snapshot)
 
       on_disk = JSON.parse(File.read(path))
+
       assert_equal 2, on_disk.size
     end
   end

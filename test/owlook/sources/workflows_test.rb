@@ -10,7 +10,7 @@ class Owlook::Sources::WorkflowsTest < Minitest::Test
       "deploy_production.yml" => "on:\n  push:\n    branches:\n      - master\n",
       "deploy_staging.yml" => "on:\n  push:\n    branches:\n      - staging\n"
     ) do |path|
-      assert_equal ["master", "staging"], Owlook::Sources::Workflows.new.branches(path).sort
+      assert_equal %w[master staging], Owlook::Sources::Workflows.new.branches(path).sort
     end
   end
 

@@ -27,11 +27,11 @@ module Owlook
     # #wait_for_next_poll is testable without an actual test waiting out a
     # real interval — see its own comment.
     def initialize(config_loader:, store:, writer:, github_source:,
-      kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new,
-      workflows_source: Sources::Workflows.new,
-      settings_loader: -> { WidgetSettings.load },
-      notifier: Notifier.new,
-      sleeper: ->(seconds) { sleep(seconds) }, logger: nil)
+                   kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new,
+                   workflows_source: Sources::Workflows.new,
+                   settings_loader: -> { WidgetSettings.load },
+                   notifier: Notifier.new,
+                   sleeper: ->(seconds) { sleep(seconds) }, logger: nil)
       @config_loader = config_loader
       @store = store
       @writer = writer
@@ -221,29 +221,29 @@ module Owlook
         # invisible to the widget: no tab, no "0 tracked", nothing to
         # distinguish it from a project nobody configured at all.
         return record_ci_observation(project, branch, state: "no_runs", version: nil,
-          details: {}, timestamp: Time.now, author: nil)
+                                                      details: {}, timestamp: Time.now, author: nil)
       end
 
       log("#{project}@#{branch}: #{run[:conclusion] || run[:status]}")
       record_ci_observation(project, branch, state: run[:conclusion] || run[:status],
-        version: run[:head_sha], details: job_counts(run[:jobs]),
-        timestamp: Time.parse(run[:updated_at]), author: run[:actor])
+                                             version: run[:head_sha], details: job_counts(run[:jobs]),
+                                             timestamp: Time.parse(run[:updated_at]), author: run[:actor])
     end
 
     def record_ci_observation(project, branch, state:, version:, details:, timestamp:, author:)
       record_and_notify(Observation.new(
-        project: project,
-        kind: "ci",
-        branch: branch,
-        destination: nil,
-        version: version,
-        state: state,
-        details: details,
-        timestamp: timestamp,
-        author: author,
-        source: "github",
-        observed_at: Time.now
-      ))
+                          project: project,
+                          kind: "ci",
+                          branch: branch,
+                          destination: nil,
+                          version: version,
+                          state: state,
+                          details: details,
+                          timestamp: timestamp,
+                          author: author,
+                          source: "github",
+                          observed_at: Time.now
+                        ))
     end
 
     # "ci_timing"/"queue_timing" — how long a project's most recent poll
@@ -255,18 +255,18 @@ module Owlook
     # only reads it once its section's own loading state has cleared).
     def record_timing(project, kind, source, duration)
       @store.record(Observation.new(
-        project: project,
-        kind: kind,
-        branch: nil,
-        destination: nil,
-        version: nil,
-        state: "ok",
-        details: { duration_seconds: duration.round(1) },
-        timestamp: Time.now,
-        author: nil,
-        source: source,
-        observed_at: Time.now
-      ))
+                      project: project,
+                      kind: kind,
+                      branch: nil,
+                      destination: nil,
+                      version: nil,
+                      state: "ok",
+                      details: { duration_seconds: duration.round(1) },
+                      timestamp: Time.now,
+                      author: nil,
+                      source: source,
+                      observed_at: Time.now
+                    ))
     end
 
     # GitHub's own UI treats a run with only skipped jobs as green, not as
@@ -351,30 +351,30 @@ module Owlook
       log("#{project}@#{destination} queue: ready=#{counts[:ready]} failed=#{counts[:failed]}")
 
       record_queue_observation(project, destination,
-        state: counts[:failed].positive? ? "failing" : "ok", details: counts)
+                               state: counts[:failed].positive? ? "failing" : "ok", details: counts)
     rescue Sources::Queue::CommandFailedError => e
       log("#{project}@#{destination} queue check failed: #{e.message}")
       # A skipped row looks identical to one nobody's checked yet — the
       # widget can't tell "SSH is broken" from "no data so far" without
       # this. Truncated: a full stderr dump doesn't belong in the state file.
       record_queue_observation(project, destination,
-        state: "unreachable", details: { error: e.message[0, 300] })
+                               state: "unreachable", details: { error: e.message[0, 300] })
     end
 
     def record_queue_observation(project, destination, state:, details:)
       record_and_notify(Observation.new(
-        project: project,
-        kind: "queue",
-        branch: nil,
-        destination: destination,
-        version: nil,
-        state: state,
-        details: details,
-        timestamp: Time.now,
-        author: nil,
-        source: "kamal-exec",
-        observed_at: Time.now
-      ))
+                          project: project,
+                          kind: "queue",
+                          branch: nil,
+                          destination: destination,
+                          version: nil,
+                          state: state,
+                          details: details,
+                          timestamp: Time.now,
+                          author: nil,
+                          source: "kamal-exec",
+                          observed_at: Time.now
+                        ))
     end
 
     # Every *real* CI/queue result (never the "checking" placeholder or the
@@ -409,8 +409,8 @@ module Owlook
       headline = "Owlook — #{observation.project}"
 
       if now_bad
-        @notifier.notify(headline, "#{what} #{location}: #{observation.state.tr("_", " ")}",
-          urgency: "critical")
+        @notifier.notify(headline, "#{what} #{location}: #{observation.state.tr('_', ' ')}",
+                         urgency: "critical")
       else
         @notifier.notify(headline, "#{what} #{location} back to normal", urgency: "normal")
       end

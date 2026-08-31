@@ -45,14 +45,17 @@ module Owlook
     # thing for whether a state change is worth a desktop notification
     # (see Collector#notify_on_transition). Same vocabulary, different
     # language, no shared source of truth across the process boundary.
+    # rubocop:disable Lint/ConstantDefinitionInBlock -- attaching a constant
+    # to a Struct's own block is the point here, not an accident of scope.
     BAD_STATES = %w[failure timed_out action_required cancelled failing unreachable].freeze
+    # rubocop:enable Lint/ConstantDefinitionInBlock
 
     def self.bad_state?(state)
       BAD_STATES.include?(state)
     end
 
     def initialize(**kwargs)
-      super(**{ details: {} }.merge(kwargs))
+      super(details: {}, **kwargs)
     end
 
     def key

@@ -10,7 +10,7 @@ class Owlook::Sources::KamalTest < Minitest::Test
       "deploy.yml" => "service: widgets\nservers:\n  web:\n    hosts: [1.2.3.4]\n",
       "deploy.staging.yml" => "servers:\n  web:\n    hosts: [5.6.7.8]\n"
     ) do |path|
-      assert_equal ["default", "staging"], Owlook::Sources::Kamal.new.destinations(path).sort
+      assert_equal %w[default staging], Owlook::Sources::Kamal.new.destinations(path).sort
     end
   end
 
@@ -25,7 +25,7 @@ class Owlook::Sources::KamalTest < Minitest::Test
       "deploy.staging.yml" => "servers:\n  web:\n    hosts: [5.6.7.8]\n",
       "deploy.production.yml" => "servers:\n  web:\n    hosts: [9.9.9.9]\n"
     ) do |path|
-      assert_equal ["production", "staging"], Owlook::Sources::Kamal.new.destinations(path).sort
+      assert_equal %w[production staging], Owlook::Sources::Kamal.new.destinations(path).sort
     end
   end
 

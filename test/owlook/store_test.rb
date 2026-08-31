@@ -64,6 +64,7 @@ class Owlook::StoreTest < Minitest::Test
 
   def test_known_is_false_before_anything_is_recorded_for_a_key
     store = Owlook::Store.new
+
     refute store.known?(ci_observation(branch: "main").key)
   end
 
@@ -84,6 +85,7 @@ class Owlook::StoreTest < Minitest::Test
     store.forget_kind("ci")
 
     kinds = store.snapshot.map { |e| e[:kind] }
+
     assert_equal ["deploy"], kinds
   end
 
@@ -101,6 +103,7 @@ class Owlook::StoreTest < Minitest::Test
     store.record(ci_observation(branch: "main", timestamp: Time.at(100)))
 
     entry = store.snapshot.first
+
     assert_instance_of Hash, entry
     assert_equal "acme/widgets", entry[:project]
     assert_equal "main", entry[:branch]
@@ -110,7 +113,7 @@ class Owlook::StoreTest < Minitest::Test
   private
 
   def ci_observation(project: "acme/widgets", branch: "main", version: "abc123",
-    state: "success", timestamp: Time.now, author: "rafael", source: "github", observed_at: Time.now)
+                     state: "success", timestamp: Time.now, author: "rafael", source: "github", observed_at: Time.now)
     Owlook::Observation.new(
       project: project, kind: "ci", branch: branch, destination: nil, version: version, state: state,
       timestamp: timestamp, author: author, source: source, observed_at: observed_at
@@ -118,7 +121,7 @@ class Owlook::StoreTest < Minitest::Test
   end
 
   def deploy_observation(project: "acme/widgets", destination: "production", version: "abc123",
-    state: "success", timestamp: Time.now, author: "rafael", source: "kamal-hook", observed_at: Time.now)
+                         state: "success", timestamp: Time.now, author: "rafael", source: "kamal-hook", observed_at: Time.now)
     Owlook::Observation.new(
       project: project, kind: "deploy", branch: nil, destination: destination, version: version, state: state,
       timestamp: timestamp, author: author, source: source, observed_at: observed_at

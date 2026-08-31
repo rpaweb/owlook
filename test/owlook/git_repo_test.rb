@@ -7,13 +7,13 @@ require "fileutils"
 class Owlook::GitRepoTest < Minitest::Test
   def test_owner_and_repo_from_an_https_remote
     with_repo(remote: "https://github.com/exampleapp/exampleapp.git") do |path|
-      assert_equal ["exampleapp", "exampleapp"], Owlook::GitRepo.new(path).owner_and_repo
+      assert_equal %w[exampleapp exampleapp], Owlook::GitRepo.new(path).owner_and_repo
     end
   end
 
   def test_owner_and_repo_from_an_ssh_remote
     with_repo(remote: "git@github.com:acme/widgets.git") do |path|
-      assert_equal ["acme", "widgets"], Owlook::GitRepo.new(path).owner_and_repo
+      assert_equal %w[acme widgets], Owlook::GitRepo.new(path).owner_and_repo
     end
   end
 

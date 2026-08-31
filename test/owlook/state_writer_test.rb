@@ -43,7 +43,7 @@ class Owlook::StateWriterTest < Minitest::Test
     with_path do |path|
       Owlook::StateWriter.new(path).write([{ project: "acme" }])
 
-      refute File.exist?("#{path}.tmp")
+      refute_path_exists "#{path}.tmp"
     end
   end
 

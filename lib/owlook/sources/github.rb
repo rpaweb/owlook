@@ -25,10 +25,10 @@ module Owlook
 
       def latest_run(owner:, repo:, branch:)
         run = @client.get("/repos/#{owner}/#{repo}/actions/runs?branch=#{branch}&per_page=1")
-          .fetch("workflow_runs").first
+                     .fetch("workflow_runs").first
         return nil unless run
 
-        jobs = @client.get("/repos/#{owner}/#{repo}/actions/runs/#{run.fetch("id")}/jobs").fetch("jobs")
+        jobs = @client.get("/repos/#{owner}/#{repo}/actions/runs/#{run.fetch('id')}/jobs").fetch("jobs")
 
         {
           id: run.fetch("id"),

@@ -42,5 +42,5 @@ collector = Owlook::Collector.new(
 )
 
 log("starting: watching #{CONFIG_PATH} (#{config_loader.call.projects.size} project(s) now), " \
-  "CI every #{CI_POLL_INTERVAL}s, queues every #{QUEUE_POLL_INTERVAL}s -> #{STATE_PATH}")
+    "CI every #{CI_POLL_INTERVAL}s, queues every #{QUEUE_POLL_INTERVAL}s -> #{STATE_PATH}")
 collector.run(ci_interval: CI_POLL_INTERVAL, queue_interval: QUEUE_POLL_INTERVAL)

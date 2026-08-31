@@ -1,0 +1,57 @@
+require:
+  - rubocop-minitest
+
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "vendor/**/*"
+    - "shell/**/*"
+
+# Line length isn't a correctness signal on code that's already been through
+# extensive review this way — flags long lines without fixing anything real.
+Layout/LineLength:
+  Max: 160
+
+# lib/ nests (module Owlook; class Foo; end; end), test/ goes compact
+# (class Owlook::FooTest < Minitest::Test) — a real, coherent split by
+# directory, not drift. RuboCop only takes one style project-wide, and
+# either direction means rewriting a dozen files for no actual gain.
+Style/ClassAndModuleChildren:
+  Enabled: false
+
+# Small, one-off scripts (bin/*, this test suite) don't need every method
+# under a fixed size to pass lint — Metrics cops exist to flag genuinely
+# tangled code, not to enforce an arbitrary line count on working code.
+Metrics:
+  Enabled: false
+
+Style/Documentation:
+  Enabled: false
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+# Test doubles intentionally keep an unused kwarg to match a real source's
+# interface (e.g. FakeQueueSource#status(project_path:, destination:) —
+# project_path exists because the real Sources::Queue#status takes it, not
+# because this fake needs it). Renaming to `_foo` isn't an option here like
+# it is for positional args — the caller passes the keyword by name.
+Lint/UnusedMethodArgument:
+  AllowUnusedKeywordArguments: true
+
+# Every scenario in this suite already reads as one cohesive check with
+# several related assertions (a state transition's before/after, a row's
+# several fields) — that's a deliberate style from how this project was
+# built (TDD, one milestone verified end-to-end at a time), not sprawl.
+Minitest/MultipleAssertions:
+  Enabled: false
+
+# write/record report *whether* they changed something as a side effect of
+# actually doing it — a real predicate (Naming's own definition) shouldn't
+# have side effects, so forcing a `?` here would be the misleading fix, not
+# the correct one. (Naming/PredicatePrefix, which is a real one below, is
+# unaffected — Store#has_servers? still gets renamed to #servers?.)
+Naming/PredicateMethod:
+  Enabled: false
