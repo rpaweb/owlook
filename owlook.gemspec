@@ -14,9 +14,13 @@ Gem::Specification.new do |spec|
   DESC
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2"
+  spec.homepage = "https://github.com/rpaweb/owlook"
+  spec.metadata["source_code_uri"] = spec.homepage
 
-  spec.files = Dir["lib/**/*.rb", "shell/**/*", "assets/**/*", "README.md", "LICENSE"]
+  spec.files = Dir["lib/**/*.rb", "bin/*", "shell/**/*", "assets/**/*", "README.md", "LICENSE"]
   spec.require_paths = ["lib"]
+  spec.bindir = "bin"
+  spec.executables = Dir["bin/*"].map { |f| File.basename(f) }
 
   spec.add_dependency "kamal", ">= 2.0"
 end
