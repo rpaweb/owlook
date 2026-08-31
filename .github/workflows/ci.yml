@@ -74,6 +74,32 @@ jobs:
         run: bundle exec bundler-audit check
 
   # ---------------------------------------------------------------------------
+  # Static security analysis — Semgrep, run as the plain local CLI (`semgrep
+  # scan`, not `semgrep ci`), which needs no login/account/upload. CodeQL
+  # would cover the same ground but needs paid GitHub Advanced Security on
+  # a private repo (confirmed against GitHub's own docs) — this doesn't,
+  # verified by actually running it against this repo's real code first.
+  # ---------------------------------------------------------------------------
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Scan Ruby and JavaScript
+        run: |
+          semgrep scan --config p/ruby --config p/javascript --config p/security-audit \
+            --error --metrics=off lib/ shell/plugins/status/Model.js
+
+  # ---------------------------------------------------------------------------
   # Gem build + real install smoke test — not just `gem build` (which
   # wouldn't have caught the missing-executables bug we found and fixed:
   # bin/* wasn't in spec.files, no spec.executables was declared). This

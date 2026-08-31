@@ -248,10 +248,21 @@ its tests never touch the network; `GithubClient` itself (the real
 
 **CI** (`.github/workflows/ci.yml`, runs on every push/PR to `master`): the
 test suite across a Ruby version matrix (`3.2`, the gemspec's declared
-floor, through `4.0`), RuboCop, `bundler-audit`, and a real install smoke
-test — builds the gem and installs it into an isolated `GEM_HOME`,
-confirming the `owlook-*` executables actually land (not just that
-`gem build` succeeds).
+floor, through `4.0`), RuboCop, `bundler-audit`, Semgrep, and a real
+install smoke test — builds the gem and installs it into an isolated
+`GEM_HOME`, confirming the `owlook-*` executables actually land (not just
+that `gem build` succeeds).
+
+**Semgrep** does static security analysis — not style (RuboCop) or
+known-CVE dependency versions (`bundler-audit`), but this repo's own
+code, checked for vulnerability *patterns*: unsafe shell command
+construction, unsafe YAML/deserialization, hardcoded credentials, that
+kind of thing. Runs as the plain local CLI (`semgrep scan`, not
+`semgrep ci`) — no login, account, or upload; verified by actually
+running it against this repo's real code first (135 rules — Ruby,
+JavaScript, and a general security-audit pack — 0 findings). Covers Ruby
+(`lib/`) and JavaScript (`Model.js`); no QML/QtQuick support, so
+`shell/**/*.qml` stays covered only by manual `qmllint` (see below).
 
 **`qmllint` is deliberately not in CI** — checked, not assumed: verified
 in a clean Ubuntu 24.04 container (matching GitHub's `ubuntu-latest`) that
