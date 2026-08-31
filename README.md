@@ -282,4 +282,5 @@ same as it's been used throughout this project so far.
 
 ## License
 
-MIT.
+Not yet decided — see [LICENSE](LICENSE). Free to use today; whether it
+ends up open source is still an open question.
