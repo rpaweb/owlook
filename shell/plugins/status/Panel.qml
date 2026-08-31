@@ -126,9 +126,9 @@ Panel {
             fontFamily: Style.font.family
 
             iconComponent: Component {
-              Text {
-                text: "🦉"
-                font.pixelSize: Style.font.display
+              OwlIcon {
+                implicitWidth: Style.font.display
+                implicitHeight: Style.font.display
               }
             }
 

@@ -102,7 +102,20 @@ that reports the same thing again, and not on the first result a
 branch/destination ever gets (nothing to compare it to yet, and "this thing
 that's always been broken is broken" isn't news). `no_runs` still counts as
 a real prior result: a branch going from "nothing has ever run" straight to
-failing does notify.
+failing does notify. The notification icon is the mark itself
+(`assets/owlook-icon.png`, shipped with the gem), passed via
+`--image` — `omarchy-notification-send -g` only takes a single text/emoji
+glyph, so it can't render the real mark.
+
+**The mark**: two ring eyes with solid pupils, a diamond beak, and a brow
+triangle, in warm amber — deliberately not `Color.accent`, since a logo
+shouldn't reskin with the active Omarchy theme. Drawn as vector paths
+(`shell/plugins/status/OwlIcon.qml`, `Shape`/`ShapePath`, the same technique
+as the panel's loading spinner and check/✗ icons) everywhere it appears in
+the shell — the panel header today; the 🦉 emoji still stands in for it in
+the bar pill, since the shared `WidgetButton` component only renders text
+and combining an icon with the badge count there needs a bit more design
+work first.
 
 Not built yet:
 

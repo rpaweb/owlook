@@ -10,13 +10,18 @@ module Owlook
   class Notifier
     DEFAULT_RUNNER = ->(*args) { system(*args, out: File::NULL, err: File::NULL) }
 
+    # The approved mark, shipped with the gem (see assets/owlook-icon.png).
+    # `-g` only takes a single text/emoji glyph — it can't render our SVG
+    # mark, so this goes through `--image` (a real path/URI hint) instead.
+    ICON_PATH = File.expand_path("../../assets/owlook-icon.png", __dir__)
+
     def initialize(command: "omarchy-notification-send", runner: DEFAULT_RUNNER)
       @command = command
       @runner = runner
     end
 
     def notify(headline, description, urgency: "normal")
-      @runner.call(@command, headline, description, "--app-name", "Owlook", "-u", urgency, "-g", "🦉")
+      @runner.call(@command, headline, description, "--app-name", "Owlook", "-u", urgency, "--image", ICON_PATH)
     end
   end
 end
