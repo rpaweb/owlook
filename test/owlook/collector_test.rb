@@ -279,6 +279,42 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # Same fix, same reason, as the CI side (see
+  # test_poll_ci_once_polls_branches_concurrently_not_one_at_a_time):
+  # kamal app exec is a real SSH round-trip per destination, and
+  # Sources::Queue#status has no shared mutable state to make concurrent
+  # calls unsafe (a fresh Open3.capture3 subprocess every time, same
+  # shape as GithubClient's fresh Net::HTTP.start per call).
+  def test_poll_queues_once_polls_destinations_concurrently_not_one_at_a_time
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        destinations = %w[production staging preview]
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new(project_path => destinations),
+          queue_source: SlowQueueSource.new(delay: 0.04, destinations: destinations)
+        )
+
+        started = Time.now
+        collector.poll_queues_once
+        elapsed = Time.now - started
+
+        # Sequential would be >= 3 * 0.04 = 0.12s; same generous headroom
+        # as the CI-side version of this test.
+        assert_operator elapsed, :<, 0.1,
+                        "expected concurrent destination polling, took #{elapsed.round(3)}s for 3 destinations at 0.04s each"
+
+        queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }
+
+        assert_equal destinations.sort, queue_rows.map { |e| e["destination"] }.sort
+      end
+    end
+  end
+
   # A destination the store has never seen before gets an immediate
   # "checking" row, written before the (slow, SSH-based) real check even
   # starts — otherwise the very first thing a freshly-started collector
@@ -1034,5 +1070,24 @@ class Owlook::CollectorTest < Minitest::Test
     end
 
     FakeStatus = Struct.new(:exitstatus)
+  end
+
+  # Every destination reports a clean queue after a real sleep — same
+  # role as SlowGithubSource, proving destinations are actually polled
+  # concurrently (real wall-clock time), not just correctly regardless of
+  # order.
+  class SlowQueueSource
+    def initialize(delay:, destinations:)
+      @delay = delay
+      @destinations = destinations
+    end
+
+    def status(project_path:, destination:)
+      sleep(@delay)
+      raise Owlook::Sources::Queue::CommandFailedError.new(["kamal"], FakeQueueSource::FakeStatus.new(1), "not stubbed") \
+        unless @destinations.include?(destination)
+
+      { ready: 0, failed: 0 }
+    end
   end
 end

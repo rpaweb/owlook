@@ -353,13 +353,30 @@ module Owlook
       announce_new_destinations(project, destinations)
       write_snapshot
 
-      destinations.each { |destination| poll_destination_queue(path, project, destination) }
+      poll_destinations_concurrently(path, project, destinations)
       # Only when there was something to time — a project with zero
       # destinations has nothing real to report a duration for.
       record_timing(project, "queue_timing", "kamal-exec", Time.now - started) if destinations.any?
       write_snapshot
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping queues for #{path}: #{e.message}")
+    end
+
+    # Same fix as poll_branches_concurrently, same reason: kamal app exec
+    # is a real SSH round-trip per destination (Sources::Queue shells out
+    # via a fresh Open3.capture3 every call, no shared connection object —
+    # as safe to run concurrently as GithubClient's fresh Net::HTTP.start
+    # per call). No concurrency cap here either, same trade-off/backlog
+    # note as the CI side — a project's destination count is realistically
+    # small (production/staging/etc.), nowhere near where that would bite.
+    def poll_destinations_concurrently(path, project, destinations)
+      destinations.map do |destination|
+        Thread.new do
+          poll_destination_queue(path, project, destination)
+        rescue StandardError => e
+          log("#{project}@#{destination}: queue poll failed, skipping this cycle (#{e.class}: #{e.message})")
+        end
+      end.each(&:join)
     end
 
     def announce_new_destinations(project, destinations)
