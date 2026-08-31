@@ -781,7 +781,7 @@ class Owlook::CollectorTest < Minitest::Test
   # #run's sleep, tested in isolation the same way poll_ci_once/
   # poll_queues_once are — no real waiting, no infinite loop.
   def test_wait_for_next_poll_wakes_up_early_when_the_all_branches_setting_changes
-    values = [false, false, true, true] # unchanged, unchanged, then flips
+    values = [false, true, true] # unchanged, then flips
     call = -1
     sleeps = []
     collector = build_collector(
@@ -791,11 +791,19 @@ class Owlook::CollectorTest < Minitest::Test
       },
       sleeper: ->(seconds) { sleeps << seconds }
     )
+    # Primed the way sync_all_branches_setting would leave it after a real
+    # poll — @known_all_branches, not a baseline re-read at call time (see
+    # wait_for_next_poll's own comment for the real bug that distinction
+    # fixed: a toggle flipped during a blocking queue/broad-CI poll was
+    # already reflected in shell.json by the time a freshly-captured
+    # baseline would have read it, so it looked unchanged for the rest of
+    # that wait).
+    collector.instance_variable_set(:@known_all_branches, false)
 
     collector.send(:wait_for_next_poll, 30, tick: 10)
 
-    # Two 10s ticks (20s), not the full three it'd take to reach 30 —
-    # the third tick is where the setting changed, so it stops there.
+    # One 10s tick, not the full three it'd take to reach 30 — the second
+    # tick is where the setting changed, so it stops there.
     assert_equal [10, 10], sleeps
   end
 
@@ -805,12 +813,31 @@ class Owlook::CollectorTest < Minitest::Test
       settings_loader: -> { FakeSettings.new(all_branches: false) },
       sleeper: ->(seconds) { sleeps << seconds }
     )
+    collector.instance_variable_set(:@known_all_branches, false)
 
     collector.send(:wait_for_next_poll, 25, tick: 10)
 
     # 10 + 10 + 5 = 25 — the last tick is capped to whatever's left,
     # not a full 10s past the interval.
     assert_equal [10, 10, 5], sleeps
+  end
+
+  def test_wait_for_next_poll_wakes_up_early_when_the_setting_changed_while_it_wasnt_watching
+    # The exact race the fix above addresses: nothing changes during any
+    # tick this method sees, because the change already happened before
+    # this method was ever called (e.g. during a blocking queue poll) —
+    # @known_all_branches still holds the pre-change value, so the very
+    # first tick catches it.
+    sleeps = []
+    collector = build_collector(
+      settings_loader: -> { FakeSettings.new(all_branches: true) },
+      sleeper: ->(seconds) { sleeps << seconds }
+    )
+    collector.instance_variable_set(:@known_all_branches, false)
+
+    collector.send(:wait_for_next_poll, 30, tick: 10)
+
+    assert_equal [10], sleeps
   end
 
   private

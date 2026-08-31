@@ -83,14 +83,26 @@ module Owlook
     # is made ahead of time with nobody watching, so a slow reload there
     # is fine; a toggle is clicked with the panel open, and nothing
     # visibly happening for up to 30s reads as broken.
+    #
+    # Compares against @known_all_branches (set by sync_all_branches_setting,
+    # the last value this collector actually acted on) rather than a
+    # baseline captured fresh here — a real bug this fixed: the queue poll
+    # and a broad-mode CI poll both block for 20+ real seconds outside this
+    # loop, so a toggle clicked during either window would already be
+    # reflected in shell.json by the time this method's own baseline read
+    # happened, making it look unchanged for the rest of that wait and
+    # missing the fast path entirely (confirmed live: 27s+ of missed
+    # detection window per cycle between the two).
     def wait_for_next_poll(ci_interval, tick: 1)
-      baseline = @settings_loader.call.all_branches?
       elapsed = 0
       while elapsed < ci_interval
         step = [tick, ci_interval - elapsed].min
         @sleeper.call(step)
         elapsed += step
-        break if @settings_loader.call.all_branches? != baseline
+        if @settings_loader.call.all_branches? != @known_all_branches
+          log("all_branches change detected after #{elapsed}s wait, polling early")
+          return
+        end
       end
     end
 
@@ -109,7 +121,10 @@ module Owlook
       current = @settings_loader.call.all_branches?
       return if current == @known_all_branches
 
-      @store.forget_kind("ci") unless @known_all_branches.nil?
+      unless @known_all_branches.nil?
+        log("all_branches setting changed #{@known_all_branches} -> #{current}, forgetting ci store")
+        @store.forget_kind("ci")
+      end
       @known_all_branches = current
     end
 
