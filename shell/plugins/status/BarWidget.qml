@@ -43,18 +43,22 @@ BarWidget {
 
   // WidgetButton only ever renders a single centered Text label — no icon
   // slot — so it keeps doing every bit of interaction (click, hover,
-  // tooltip, bar registration) exactly as before, on the same barText()
-  // string it always used (still the right width to reserve). What's new
-  // is labelVisible: false, so that text never actually paints; the Row
+  // tooltip, bar registration) exactly as before. What's new is
+  // labelVisible: false, so that text never actually paints; iconHolder
   // below draws the real pill content on top of it, purely decorative
   // (no MouseArea of its own, so clicks/hover still land on the button
-  // beneath it untouched).
+  // beneath it untouched). fixedWidth matches a plain icon-only pill —
+  // no extra slack for a badge anymore; the status dot is small enough
+  // to overlap the icon's own corner (same trick TailscaleIcon uses for
+  // its badge) without needing its own reserved space, which was making
+  // this pill visibly wider than its neighbors before.
   WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
     text: root.panelItem ? root.panelItem.barText() : "🦉"
     labelVisible: false
+    fixedWidth: Style.font.iconLarge + scaledHorizontalMargin * 2
     active: root.panelItem ? root.panelItem.alarming : false
     tooltipText: root.panelItem ? root.panelItem.tooltipText() : "Owlook"
     horizontalMargin: 8
@@ -62,25 +66,80 @@ BarWidget {
     onPressed: root.toggle()
   }
 
-  Row {
+  Item {
+    id: iconHolder
     anchors.centerIn: button
-    spacing: Style.space(4)
+    width: owlIcon.width
+    height: owlIcon.height
 
     OwlIcon {
-      anchors.verticalCenter: parent.verticalCenter
-      implicitWidth: button.fontSize
-      implicitHeight: button.fontSize
+      id: owlIcon
+      // Style.font.iconLarge (18px) — Style.font.icon (14px) turned out
+      // barely perceptible over the original button.fontSize (12px, meant
+      // for text, not icons); Dropbox/Tailscale's icon.qml components
+      // default to Style.font.icon, but they live inside a shared
+      // panel/tray, not a standalone single-icon pill like this one, so
+      // that precedent doesn't actually transfer. iconLarge is a real
+      // Omarchy token too (Menu.qml, PolkitAgent.qml, GalleryPanel.qml
+      // all use it), just the one meant for a bigger, standalone icon.
+      implicitWidth: Style.font.iconLarge
+      implicitHeight: Style.font.iconLarge
+      // Bar-pill only: button.foreground (theme-neutral, the same color
+      // every other bar icon uses — TailscaleIcon/DropboxIcon are both
+      // single-color, matching root.color everywhere), not the fixed
+      // amber brand color the panel header and notification icon keep.
+      // The pill sits shoulder-to-shoulder with other apps' icons, where
+      // standing out read as broken rather than intentional; the panel
+      // and notification are owlook's own space, where the brand color
+      // earns its keep instead of competing with anything.
+      ringColor: button.foreground
+      beakColor: button.foreground
     }
 
-    Text {
-      readonly property string badge: root.panelItem ? root.panelItem.badgeText() : ""
-      visible: badge !== ""
-      anchors.verticalCenter: parent.verticalCenter
-      text: badge
-      color: button.active && button.useActiveColor ? button.activeColor : button.foreground
-      font.family: button.fontFamily
-      font.pixelSize: button.fontSize
-      renderType: Text.NativeRendering
+    // A plain status dot, like Slack's own tray icon — red/green to
+    // evaluate both states live; may end up "nothing at all when OK"
+    // instead (matching TailscaleIcon's own badge, which only exists when
+    // warning is true) once this is actually settled. Hidden specifically
+    // while loading (state: "checking") — without this, the dot showed
+    // green the instant a settings toggle or a fresh start put rows in
+    // this state, before anything had actually been checked yet.
+    Rectangle {
+      id: statusDot
+      readonly property bool bad: root.panelItem ? root.panelItem.alarming : false
+      readonly property bool loading: root.panelItem ? root.panelItem.loading : false
+      visible: !loading
+      // Bigger and closer than the first pass — barely overlapping the
+      // icon's corner instead of hanging off it, and not pushed down
+      // toward the bar's own bottom edge. Sized/positioned from
+      // description (Slack/HEY's own dock badge), not a side-by-side
+      // visual comparison — confirm against the real thing.
+      width: Math.max(5, Style.font.iconLarge * 0.4)
+      height: width
+      radius: width / 2
+      anchors.right: owlIcon.right
+      anchors.bottom: owlIcon.bottom
+      anchors.rightMargin: -width * 0.05
+      anchors.bottomMargin: 0
+      color: bad ? Color.urgent : "#9ece6a"
+      border.color: Color.popups.background
+      border.width: 1
+    }
+
+    // Same slot, same size, while loading — the same spinner technique
+    // used everywhere else in this panel (LoadingSpinner.qml, extracted
+    // from Panel.qml so this file could reuse it instead of a fresh
+    // "still working on it" idea just for this one corner.
+    LoadingSpinner {
+      visible: root.panelItem ? root.panelItem.loading : false
+      anchors.right: owlIcon.right
+      anchors.bottom: owlIcon.bottom
+      anchors.rightMargin: -statusDot.width * 0.05
+      anchors.bottomMargin: 0
+      implicitWidth: statusDot.width
+      implicitHeight: statusDot.width
+      strokeWidth: Math.max(1, statusDot.width * 0.1)
+      foreground: button.foreground
+      running: visible
     }
   }
 }

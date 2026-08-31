@@ -30,6 +30,15 @@ function badCount(entries) {
   return entries.filter(function(entry) { return isBad(entry.state) }).length
 }
 
+// Global (not per-project/per-section, unlike ciLoading/destinationsLoading
+// below) — the bar pill's own status dot needs one flat "is anything at all
+// still resolving" signal, not a per-tab one. Both CI and queue placeholders
+// stamp state: "checking" (see Collector#pending_ci_observation and
+// #pending_queue_observation), so this catches either.
+function anyLoading(entries) {
+  return entries.some(function(entry) { return entry.state === "checking" })
+}
+
 // "no_runs" rows exist so a project with no Actions runs yet still gets a
 // tab (see Collector#poll_project_ci), "checking" rows exist so a
 // branch/destination the collector just discovered shows up before its
@@ -347,6 +356,7 @@ if (typeof module !== "undefined") {
     parseEntries: parseEntries,
     isBad: isBad,
     anyBad: anyBad,
+    anyLoading: anyLoading,
     badCount: badCount,
     isRealCheck: isRealCheck,
     realCheckCount: realCheckCount,

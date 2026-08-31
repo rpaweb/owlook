@@ -56,6 +56,7 @@ Panel {
   readonly property var activeProject: projects.length > 0 ? projects[root.activeIndex] : null
 
   readonly property bool alarming: Model.anyBad(entries)
+  readonly property bool loading: Model.anyLoading(entries)
 
   function barText() { return Model.barText(entries) }
   function badgeText() { return Model.badgeText(entries) }
@@ -718,50 +719,6 @@ Panel {
     }
   }
 
-  // ---- loading spinner ---------------------------------------------------
-
-  // A rotating open ring (Shape + PathAngleArc, the same technique the
-  // shell's own speed-test dials use) — not a word. "checking…" as text
-  // read as a broken/empty state, not a busy one; a spinner is the
-  // unambiguous "still working on it" signal for what's otherwise a
-  // completely empty section.
-  component LoadingSpinner: Item {
-    id: spinner
-    property color foreground: Color.accent
-    property bool running: true
-
-    implicitWidth: Style.space(28)
-    implicitHeight: Style.space(28)
-
-    Shape {
-      id: arc
-      anchors.fill: parent
-      preferredRendererType: Shape.CurveRenderer
-      opacity: spinner.running ? 1 : 0
-
-      RotationAnimation on rotation {
-        from: 0
-        to: 360
-        duration: 900
-        loops: Animation.Infinite
-        running: spinner.running
-      }
-
-      ShapePath {
-        strokeWidth: Style.space(3)
-        strokeColor: spinner.foreground
-        fillColor: "transparent"
-        capStyle: ShapePath.RoundCap
-
-        PathAngleArc {
-          centerX: arc.width / 2
-          centerY: arc.height / 2
-          radiusX: (arc.width - Style.space(3)) / 2
-          radiusY: (arc.height - Style.space(3)) / 2
-          startAngle: 0
-          sweepAngle: 270
-        }
-      }
-    }
-  }
+  // LoadingSpinner used to be defined inline here — now its own file
+  // (LoadingSpinner.qml, same directory), reused from BarWidget.qml too.
 }
