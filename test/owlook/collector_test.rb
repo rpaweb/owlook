@@ -388,6 +388,44 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # The real bug this covers: a broad-mode poll of N branches previously
+  # took N round-trips, back to back — during which the collector couldn't
+  # notice a settings-toggle click either (see wait_for_next_poll's own
+  # comment for that half of it). Branches are polled concurrently now, so
+  # 5 branches at ~40ms each finishes in about one branch's time, not the
+  # sum of all five.
+  def test_poll_ci_once_polls_branches_concurrently_not_one_at_a_time
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        branches = %w[a b c d e]
+        github_source = SlowGithubSource.new(delay: 0.04, branches: branches)
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source,
+          workflows_source: FakeWorkflowsSource.new(project_path => branches)
+        )
+
+        started = Time.now
+        collector.poll_ci_once
+        elapsed = Time.now - started
+
+        # Sequential would be >= 5 * 0.04 = 0.2s; concurrent should land
+        # close to a single branch's delay. 0.12s leaves real headroom for
+        # thread scheduling/CI-machine jitter without being able to pass
+        # if this silently regressed back to sequential.
+        assert_operator elapsed, :<, 0.12,
+                        "expected concurrent branch polling, took #{elapsed.round(3)}s for 5 branches at 0.04s each"
+
+        ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }
+
+        assert_equal branches.sort, ci_rows.map { |e| e["branch"] }.sort
+      end
+    end
+  end
+
   # A project with no push-triggered workflow (PR-only CI, or none at all)
   # falls back to whatever's checked out locally instead of tracking
   # nothing — same single-branch behavior as before Sources::Workflows
@@ -900,6 +938,24 @@ class Owlook::CollectorTest < Minitest::Test
 
     def branches_with_runs(owner:, repo:, limit: 100)
       @branch_routes.fetch([owner, repo], [])
+    end
+  end
+
+  # Every branch reports success after a real sleep — proving branches
+  # are actually polled concurrently (real wall-clock time, not just
+  # interleaved) needs a fake that actually blocks, not an instant one.
+  class SlowGithubSource
+    def initialize(delay:, branches:)
+      @delay = delay
+      @branches = branches
+    end
+
+    def latest_run(owner:, repo:, branch:)
+      sleep(@delay)
+      return nil unless @branches.include?(branch)
+
+      { head_sha: "sha-#{branch}", status: "completed", conclusion: "success",
+        updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
     end
   end
 

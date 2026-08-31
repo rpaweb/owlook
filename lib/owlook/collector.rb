@@ -44,6 +44,10 @@ module Owlook
       @sleeper = sleeper
       @logger = logger
       @known_all_branches = nil
+      # Branches now poll concurrently (see poll_branches_concurrently) —
+      # @store's own Hash isn't safe for unsynchronized concurrent
+      # mutation, even across different keys.
+      @store_mutex = Mutex.new
     end
 
     def poll_ci_once
@@ -154,7 +158,7 @@ module Owlook
       announce_new_ci_branches(project, branches)
       write_snapshot
 
-      branches.each { |branch| poll_branch_ci(owner, name, project, branch) }
+      poll_branches_concurrently(owner, name, project, branches)
       # How long this project's CI actually took to resolve, start to
       # finish — the widget shows this next to "CI — N tracked" once the
       # section's own spinner clears, not before.
@@ -162,6 +166,38 @@ module Owlook
       write_snapshot
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping #{path}: #{e.message}")
+    end
+
+    # GitHub Actions requests are I/O-bound — Ruby releases the GIL during
+    # the actual network wait, so real threads here mean real concurrency,
+    # not just interleaving. This is what turned a broad-mode poll of ~20
+    # branches from ~25s (sequential, one HTTP round-trip at a time) into
+    # something bounded by the slowest single branch instead of their sum
+    # — and, just as importantly, stopped a settings-toggle click from
+    # being stuck behind that whole sequential run before the collector
+    # could even notice it (see wait_for_next_poll's own comment for that
+    # half of the same underlying bug, confirmed live: a 28s detection gap
+    # traced straight back to this).
+    #
+    # No concurrency cap: for the branch counts a broad-mode poll
+    # realistically produces (tens, not hundreds), this comfortably sits
+    # under GitHub's rate limits. Revisit with a bounded pool if a
+    # project's branch count grows enough to change that trade-off — see
+    # the README's existing "GitHub rate limits" backlog note.
+    #
+    # Each thread's own error is caught and logged rather than left to
+    # crash the whole cycle — a burst of concurrent requests is more
+    # likely to hit at least one transient failure than the same requests
+    # spread out sequentially over 25 real seconds, so this isolation
+    # matters more here than it did before.
+    def poll_branches_concurrently(owner, name, project, branches)
+      branches.map do |branch|
+        Thread.new do
+          poll_branch_ci(owner, name, project, branch)
+        rescue StandardError => e
+          log("#{project}@#{branch}: poll failed, skipping this cycle (#{e.class}: #{e.message})")
+        end
+      end.each(&:join)
     end
 
     def announce_new_ci_branches(project, branches)
@@ -397,8 +433,15 @@ module Owlook
     # directly) passes through here, so a state change can be compared
     # against whatever it's replacing before it's gone.
     def record_and_notify(observation)
-      previous = @store.current(observation.key)
-      @store.record(observation)
+      # Only the actual Hash read+write needs the lock — notify_on_transition
+      # works off values already captured by this point, and shelling out
+      # to omarchy-notification-send is exactly the kind of thing other
+      # threads shouldn't have to wait on.
+      previous = @store_mutex.synchronize do
+        prev = @store.current(observation.key)
+        @store.record(observation)
+        prev
+      end
       notify_on_transition(observation, previous)
     end
 
