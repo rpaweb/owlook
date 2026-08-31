@@ -111,11 +111,16 @@ glyph, so it can't render the real mark.
 triangle, in warm amber — deliberately not `Color.accent`, since a logo
 shouldn't reskin with the active Omarchy theme. Drawn as vector paths
 (`shell/plugins/status/OwlIcon.qml`, `Shape`/`ShapePath`, the same technique
-as the panel's loading spinner and check/✗ icons) everywhere it appears in
-the shell — the panel header today; the 🦉 emoji still stands in for it in
-the bar pill, since the shared `WidgetButton` component only renders text
-and combining an icon with the badge count there needs a bit more design
-work first.
+as the panel's loading spinner and check/✗ icons) everywhere it appears:
+the panel header, the notification, and the bar pill. The bar pill is the
+trickiest of the three — the shared `WidgetButton` component only ever
+renders a single centered text label, no icon slot — so it keeps doing
+every bit of interaction (click, hover, tooltip, bar registration) exactly
+as it did before, on the same reserved-width string it always used, just
+with `labelVisible: false` so that text never actually paints; a plain,
+non-interactive `Row` (`OwlIcon` + a badge-count `Text`) sits on top of it
+purely for drawing, so clicks and hover still land on the real button
+underneath untouched.
 
 Not built yet:
 

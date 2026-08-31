@@ -58,6 +58,7 @@ Panel {
   readonly property bool alarming: Model.anyBad(entries)
 
   function barText() { return Model.barText(entries) }
+  function badgeText() { return Model.badgeText(entries) }
 
   function tooltipText() {
     if (entries.length === 0) return "Owlook — waiting for the collector"

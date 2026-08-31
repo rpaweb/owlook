@@ -53,6 +53,14 @@ function barText(entries) {
   return bad > 0 ? "🦉 " + bad : "🦉"
 }
 
+// The digits-only half of the bar pill — BarWidget.qml pairs this with a
+// vector OwlIcon instead of the emoji baked into barText() above (kept
+// around only to size the pill; see BarWidget.qml for why).
+function badgeText(entries) {
+  var bad = badCount(entries)
+  return bad > 0 ? String(bad) : ""
+}
+
 function stateLabel(state) {
   switch (String(state || "")) {
     case "success": return "passing"
@@ -343,6 +351,7 @@ if (typeof module !== "undefined") {
     isRealCheck: isRealCheck,
     realCheckCount: realCheckCount,
     barText: barText,
+    badgeText: badgeText,
     stateLabel: stateLabel,
     rowLocation: rowLocation,
     queueShortText: queueShortText,
