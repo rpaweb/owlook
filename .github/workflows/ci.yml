@@ -8,11 +8,14 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Test suite — Ruby version matrix. No Rails-version axis (unlike jet_ui) —
-  # owlook isn't a Rails engine, it watches Rails apps from outside.
+  # Test suite, run once per Ruby version — a compatibility matrix: the
+  # same suite, confirming it passes the same way on every version the
+  # gemspec claims to support, not just whichever one this repo happens to
+  # be developed on. No Rails-version axis (unlike jet_ui) — owlook isn't
+  # a Rails engine, it watches Rails apps from outside.
   # ---------------------------------------------------------------------------
-  test:
-    name: "Ruby ${{ matrix.ruby }}"
+  compatibility:
+    name: "Ruby ${{ matrix.ruby }} comp."
     runs-on: ubuntu-latest
 
     strategy:
