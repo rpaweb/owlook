@@ -246,6 +246,29 @@ its tests never touch the network; `GithubClient` itself (the real
 `Net::HTTP` transport) is only exercised manually, against real repos, via
 `bin/owlook-github-status`.
 
+**CI** (`.github/workflows/ci.yml`, runs on every push/PR to `master`): the
+test suite across a Ruby version matrix (`3.2`, the gemspec's declared
+floor, through `4.0`), RuboCop, `bundler-audit`, and a real install smoke
+test — builds the gem and installs it into an isolated `GEM_HOME`,
+confirming the `owlook-*` executables actually land (not just that
+`gem build` succeeds).
+
+**`qmllint` is deliberately not in CI** — checked, not assumed: verified
+in a clean Ubuntu 24.04 container (matching GitHub's `ubuntu-latest`) that
+even with the right package installed (`qt6-declarative-dev-tools`, not
+`qt6-declarative-dev` — that one ships no binary, only its Qt6QmlCompiler
+cmake integration) and the real QtQuick/Shapes QML modules alongside it,
+two things still make it unusable there: `qs.Commons`/`qs.Ui` (Quickshell's
+own module system) can't resolve outside a real Quickshell install — no
+apt package provides them — and Ubuntu's packaged Qt6 (6.4.2) is old
+enough to flag real, working APIs (`Shape.preferredRendererType`,
+`Shape.CurveRenderer`) as unknown. Silencing every warning category that
+depends on either would leave a job that always passes regardless of what
+actually broke — worse than no job, since it'd look like coverage that
+isn't there. `qmllint` (same as `omarchy plugin validate`, for the same
+underlying reason) stays a required manual step before any QML change,
+same as it's been used throughout this project so far.
+
 ## License
 
 MIT.
