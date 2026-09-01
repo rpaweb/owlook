@@ -510,18 +510,38 @@ Panel {
       }
     }
 
-    Text {
-      id: ciText
+    // A dependabot-style branch (several "/"-separated segments plus a
+    // version suffix) can easily be longer than the panel is wide. Eliding
+    // the branch+summary as one string hid whichever came second — usually
+    // the summary, since the branch name always comes first — so a long
+    // branch meant never seeing the CI result at all. Horizontal overflow
+    // instead: nothing is cut, the row pans (drag, or the scrollbar below)
+    // to reach whatever doesn't fit.
+    Flickable {
+      id: ciTextFlick
       anchors.left: ciPill.right
       anchors.leftMargin: Style.space(8)
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      textFormat: Text.StyledText
-      text: "<b>" + ciRow.modelData.branch + "</b>  ·  " + Model.ciSummary(ciRow.modelData)
-      color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
-      font.family: Style.font.family
-      font.pixelSize: Style.font.caption
-      elide: Text.ElideRight
+      height: ciText.implicitHeight
+      contentWidth: ciText.implicitWidth
+      clip: true
+      boundsBehavior: Flickable.StopAtBounds
+      flickableDirection: Flickable.HorizontalFlick
+
+      Text {
+        id: ciText
+        textFormat: Text.StyledText
+        text: "<b>" + ciRow.modelData.branch + "</b>  ·  " + Model.ciSummary(ciRow.modelData)
+        color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+      }
+
+      ScrollBar.horizontal: ScrollBar {
+        policy: ciTextFlick.contentWidth > ciTextFlick.width ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+        height: Style.space(3)
+      }
     }
   }
 
