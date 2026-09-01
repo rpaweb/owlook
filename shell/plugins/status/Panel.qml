@@ -296,17 +296,15 @@ Panel {
               foreground: root.barForeground
             }
 
-            Text {
+            EmptyStateBox {
               visible: !ciSection.loading && ciSection.rows.length === 0
               anchors.top: ciHeader.bottom
-              anchors.topMargin: Style.space(10)
+              anchors.topMargin: Style.space(6)
               anchors.left: parent.left
-              anchors.leftMargin: Style.space(8)
-              text: "no CI runs found"
-              color: Qt.darker(root.barForeground, 1.4)
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-              font.italic: true
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              anchors.margins: Style.space(6)
+              message: "no CI runs found"
             }
 
             Item {
@@ -389,17 +387,15 @@ Panel {
               foreground: root.barForeground
             }
 
-            Text {
+            EmptyStateBox {
               visible: queuesSection.destCount === 0
               anchors.top: queuesHeader.bottom
               anchors.topMargin: Style.space(6)
               anchors.left: parent.left
-              anchors.leftMargin: Style.space(8)
-              text: "no Kamal destinations configured"
-              color: Qt.darker(root.barForeground, 1.4)
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-              font.italic: true
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              anchors.margins: Style.space(6)
+              message: "no Kamal destinations configured"
             }
 
             Item {
@@ -646,6 +642,77 @@ Panel {
     MouseArea {
       anchors.fill: parent
       onClicked: root.activeTabIndex = tabItem.index
+    }
+  }
+
+  // ---- empty-state placeholder ------------------------------------------
+
+  // A dashed, semi-rounded box with a centered message — used by both CI
+  // and ENVIRONMENTS when there's nothing real to show ("no CI runs
+  // found", "no Kamal destinations configured"). Previously just a plain
+  // Text left-aligned under the header; that read as a stray leftover
+  // line rather than a deliberate "this is empty" state.
+  //
+  // The rounded-rect trace is the same corner technique as the accent bar
+  // above and OpenIcon/VerdictIcon below (straight PathLines + PathArc
+  // corners) — but the box's own width/height are referenced directly in
+  // each PathLine/PathArc rather than hoisted into `property real`s on
+  // the ShapePath itself: that hoisted version silently rendered only a
+  // couple of pixels near the very start of the path and nothing else
+  // (confirmed by rendering both versions offscreen before landing this),
+  // for reasons that didn't repay chasing down once the direct-reference
+  // version was confirmed correct.
+  component EmptyStateBox: Item {
+    id: emptyBox
+    property string message: ""
+
+    Shape {
+      anchors.fill: parent
+      preferredRendererType: Shape.CurveRenderer
+
+      ShapePath {
+        fillColor: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.02)
+        strokeColor: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.25)
+        strokeWidth: 1
+        strokeStyle: ShapePath.DashLine
+        dashPattern: [3, 3]
+        joinStyle: ShapePath.RoundJoin
+
+        startX: Style.cornerRadius; startY: 0
+        PathLine { x: emptyBox.width - Style.cornerRadius; y: 0 }
+        PathArc {
+          x: emptyBox.width; y: Style.cornerRadius
+          radiusX: Style.cornerRadius; radiusY: Style.cornerRadius
+          direction: PathArc.Clockwise
+        }
+        PathLine { x: emptyBox.width; y: emptyBox.height - Style.cornerRadius }
+        PathArc {
+          x: emptyBox.width - Style.cornerRadius; y: emptyBox.height
+          radiusX: Style.cornerRadius; radiusY: Style.cornerRadius
+          direction: PathArc.Clockwise
+        }
+        PathLine { x: Style.cornerRadius; y: emptyBox.height }
+        PathArc {
+          x: 0; y: emptyBox.height - Style.cornerRadius
+          radiusX: Style.cornerRadius; radiusY: Style.cornerRadius
+          direction: PathArc.Clockwise
+        }
+        PathLine { x: 0; y: Style.cornerRadius }
+        PathArc {
+          x: Style.cornerRadius; y: 0
+          radiusX: Style.cornerRadius; radiusY: Style.cornerRadius
+          direction: PathArc.Clockwise
+        }
+      }
+    }
+
+    Text {
+      anchors.centerIn: parent
+      text: emptyBox.message
+      color: Qt.darker(root.barForeground, 1.4)
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+      font.italic: true
     }
   }
 
