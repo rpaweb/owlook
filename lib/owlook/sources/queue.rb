@@ -105,8 +105,16 @@ module Owlook
       def parse(output)
         # --reuse runs the command on every role matching the destination,
         # not just one (confirmed against a real multi-role project) — one
-        # identical JSON line per role, not a single line.
-        data = JSON.parse(output.lines.first.to_s)
+        # identical JSON line per role. output.lines.first used to be
+        # trusted as that JSON outright — broke against a real target app
+        # with verbose query logging on (confirmed live: ANSI-colored SQL
+        # log lines from every SolidQueue.* call print ahead of the real
+        # `puts result.to_json`, so the first line is a log line, not
+        # data, whenever that's on). Scan for the first line that's
+        # actually our JSON shape instead of assuming position.
+        data = first_result_line(output)
+        raise JSON::ParserError, "no queue-check JSON found in output" unless data
+
         result = { ready: data.fetch("ready"), failed: data.fetch("failed") }
         # workers/oldest are read defensively rather than with fetch: an
         # older RUNNER_CODE (already-running collector mid-deploy, or a
@@ -114,6 +122,16 @@ module Owlook
         result[:workers] = data["workers"] if data.key?("workers")
         result[:oldest] = data["oldest"] if data.key?("oldest")
         result
+      end
+
+      def first_result_line(output)
+        output.each_line do |line|
+          parsed = JSON.parse(line)
+          return parsed if parsed.is_a?(Hash) && parsed.key?("ready") && parsed.key?("failed")
+        rescue JSON::ParserError
+          next
+        end
+        nil
       end
     end
   end

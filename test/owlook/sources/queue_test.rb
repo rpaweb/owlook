@@ -59,6 +59,32 @@ class Owlook::Sources::QueueTest < Minitest::Test
     assert_equal({ ready: 0, failed: 18 }, result)
   end
 
+  # A real target app with verbose query logging on prints an ANSI-colored
+  # SQL log line for every SolidQueue.* call in RUNNER_CODE ahead of the
+  # actual `puts result.to_json` — confirmed live against a real staging
+  # environment. The first line isn't reliably the JSON; scan for it.
+  def test_status_skips_query_log_noise_ahead_of_the_json
+    log_line = "  \e[1m\e[36mSolidQueue::ReadyExecution Minimum (10.7ms)\e[0m  " \
+               "\e[1m\e[34mSELECT MIN(\"solid_queue_ready_executions\".\"created_at\") " \
+               "FROM \"solid_queue_ready_executions\"\e[0m"
+    noisy = [log_line, '{"ready":0,"failed":30582,"workers":4}', ""].join("\n")
+    shell = FakeShell.new(noisy)
+    source = Owlook::Sources::Queue.new(shell: shell)
+
+    result = source.status(project_path: "/tmp/widgets", destination: "staging")
+
+    assert_equal({ ready: 0, failed: 30_582, workers: 4 }, result)
+  end
+
+  def test_status_raises_when_no_line_looks_like_the_expected_json
+    shell = FakeShell.new("nothing but log noise, no result line at all\n")
+    source = Owlook::Sources::Queue.new(shell: shell)
+
+    assert_raises(JSON::ParserError) do
+      source.status(project_path: "/tmp/widgets", destination: "staging")
+    end
+  end
+
   def test_status_runs_in_the_project_directory
     shell = FakeShell.new('{"ready":0,"failed":0}')
     source = Owlook::Sources::Queue.new(shell: shell)
