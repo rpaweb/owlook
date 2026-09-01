@@ -110,6 +110,7 @@ BarWidget {
     Rectangle {
       id: statusDot
       readonly property bool bad: root.panelItem ? root.panelItem.alarming : false
+      readonly property bool stalled: root.panelItem ? root.panelItem.stalled : false
       readonly property bool loading: root.panelItem ? root.panelItem.loading : false
       visible: !loading
       // Bigger and closer than the first pass — barely overlapping the
@@ -127,8 +128,10 @@ BarWidget {
       // themeColors.success, not a hardcoded literal — this used to be
       // "#9ece6a" outright, which is Tokyo Night's own green, not a real
       // color choice; see ThemeColors.qml for where it actually comes
-      // from now.
-      color: bad ? Color.urgent : themeColors.success
+      // from now. Three tiers, not two — bad (an actual failure) still
+      // wins over stalled (a queue backlog with nobody working it, see
+      // Collector#queue_state) if somehow both are true at once.
+      color: bad ? Color.urgent : (stalled ? themeColors.warn : themeColors.success)
       border.color: Color.popups.background
       border.width: 1
     }

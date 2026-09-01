@@ -472,8 +472,7 @@ module Owlook
       counts = @queue_source.status(project_path: path, destination: destination)
       log("#{project}@#{destination} queue: ready=#{counts[:ready]} failed=#{counts[:failed]}")
 
-      record_queue_observation(project, destination,
-                               state: counts[:failed].positive? ? "failing" : "ok", details: counts)
+      record_queue_observation(project, destination, state: queue_state(counts), details: counts)
     rescue Sources::Queue::CommandFailedError => e
       log("#{project}@#{destination} queue check failed: #{e.message}")
       # A skipped row looks identical to one nobody's checked yet — the
@@ -481,6 +480,30 @@ module Owlook
       # this. Truncated: a full stderr dump doesn't belong in the state file.
       record_queue_observation(project, destination,
                                state: "unreachable", details: { error: e.message[0, 300] })
+    end
+
+    # "stalled": jobs are waiting (ready > 0) with nobody alive to work
+    # them (workers == 0) — genuinely different from "failing" (a job
+    # actually threw) and from what this used to report for it, "ok"
+    # (only ever "failing" or "ok" before this: a backlog with zero
+    # workers silently read as fine, since nothing had technically failed
+    # yet — the widget's own status dot showed green for it). "failing"
+    # still wins if both are somehow true at once — an actual failure is
+    # the more urgent fact.
+    #
+    # counts[:workers] == 0, not counts[:workers].to_i.zero? — a missing
+    # workers key (an older observation, or a queue_source that doesn't
+    # report it) means "unknown", not "confirmed zero"; nil == 0 is
+    # false, so it falls through to "ok" rather than claiming stalled on
+    # data that was never actually collected.
+    def queue_state(counts)
+      return "failing" if counts[:failed].positive?
+      # rubocop:disable Style/NumericPredicate -- .zero? would raise on a
+      # missing key (nil); == 0 needs nil to compare false, not crash.
+      return "stalled" if counts[:ready].positive? && counts[:workers] == 0
+      # rubocop:enable Style/NumericPredicate
+
+      "ok"
     end
 
     def record_queue_observation(project, destination, state:, details:)

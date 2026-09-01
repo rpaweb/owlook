@@ -57,6 +57,7 @@ Panel {
 
   readonly property bool alarming: Model.anyBad(entries)
   readonly property bool loading: Model.anyLoading(entries)
+  readonly property bool stalled: Model.anyStalled(entries)
 
   function barText() { return Model.barText(entries) }
   function badgeText() { return Model.badgeText(entries) }
@@ -84,6 +85,14 @@ Panel {
     onLoaded: root.applyState(text())
     onFileChanged: reload()
     onLoadFailed: root.entries = []
+  }
+
+  // Own instance, same as BarWidget.qml's — each just reads the same
+  // small local colors.toml independently rather than one being threaded
+  // down through injectPanel, matching how OwlIcon/LoadingSpinner are
+  // already used (a plain reusable component, not a shared singleton).
+  ThemeColors {
+    id: themeColors
   }
 
   KeyboardPanel {
@@ -415,6 +424,7 @@ Panel {
 
     readonly property bool active: index === root.activeIndex
     readonly property bool bad: Model.projectIsBad(tabItem.modelData)
+    readonly property bool stalled: Model.projectIsStalled(tabItem.modelData)
 
     width: tabRow.implicitWidth + Style.space(20)
     height: ListView.view ? ListView.view.height : implicitHeight
@@ -438,7 +448,7 @@ Panel {
         height: Style.space(6)
         radius: width / 2
         anchors.verticalCenter: parent.verticalCenter
-        color: tabItem.bad ? root.urgent : Color.muted
+        color: tabItem.bad ? root.urgent : (tabItem.stalled ? themeColors.warn : Color.muted)
       }
 
       Text {
@@ -614,6 +624,7 @@ Panel {
 
     readonly property var queueEntry: destRow.modelData.queue
     readonly property bool bad: destRow.queueEntry ? Model.isBad(destRow.queueEntry.state) : false
+    readonly property bool stalled: destRow.queueEntry ? Model.isStalled(destRow.queueEntry.state) : false
     readonly property bool checking: destRow.queueEntry !== null && destRow.queueEntry.state === "checking"
     readonly property var stats: Model.destStats(destRow.queueEntry)
 
@@ -627,7 +638,9 @@ Panel {
       radius: Style.cornerRadius
       color: destRow.bad
         ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.12)
-        : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.05)
+        : destRow.stalled
+          ? Qt.rgba(themeColors.warn.r, themeColors.warn.g, themeColors.warn.b, 0.12)
+          : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.05)
 
       Rectangle {
         // Left accent bar — the same severity cue as the pill, at a glance
@@ -635,7 +648,11 @@ Panel {
         width: Style.space(3)
         height: parent.height
         radius: Style.cornerRadius
-        color: destRow.bad ? root.urgent : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.3)
+        color: destRow.bad
+          ? root.urgent
+          : destRow.stalled
+            ? themeColors.warn
+            : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.3)
       }
 
       Column {
@@ -671,7 +688,9 @@ Panel {
             height: destBadgeText.implicitHeight + Style.space(4)
             color: destRow.bad
               ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.2)
-              : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.1)
+              : destRow.stalled
+                ? Qt.rgba(themeColors.warn.r, themeColors.warn.g, themeColors.warn.b, 0.2)
+                : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.1)
 
             Text {
               id: destBadgeText
@@ -681,7 +700,11 @@ Panel {
               // ("checking…"), not a result, same visual language as the
               // "no CI runs found" / "no Kamal destinations configured"
               // messages elsewhere in this panel.
-              color: destRow.bad ? root.urgent : Qt.darker(root.barForeground, destRow.checking ? 1.6 : 1.15)
+              color: destRow.bad
+                ? root.urgent
+                : destRow.stalled
+                  ? themeColors.warn
+                  : Qt.darker(root.barForeground, destRow.checking ? 1.6 : 1.15)
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
               font.bold: !destRow.checking
@@ -706,7 +729,7 @@ Panel {
               Text {
                 id: statValue
                 text: statChip.modelData.n
-                color: statChip.modelData.warn ? root.urgent : Qt.darker(root.barForeground, 1.1)
+                color: statChip.modelData.warn ? themeColors.warn : Qt.darker(root.barForeground, 1.1)
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 font.bold: true

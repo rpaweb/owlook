@@ -268,6 +268,65 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # Before this, a destination's state was only ever "failing" or "ok" —
+  # a backlog with jobs waiting and zero workers alive to run them
+  # silently read as "ok", since nothing had technically failed yet.
+  def test_poll_queues_once_marks_a_destination_stalled_when_jobs_are_ready_with_no_workers
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new(project_path => %w[stalled busy idle]),
+          queue_source: FakeQueueSource.new(
+            # Ready jobs, nobody to work them.
+            ["stalled"] => { ready: 5, failed: 0, workers: 0 },
+            # Ready jobs, but workers are alive — not stalled, just busy.
+            ["busy"] => { ready: 5, failed: 0, workers: 2 },
+            # Nothing waiting and no workers — nothing to be stalled about.
+            ["idle"] => { ready: 0, failed: 0, workers: 0 }
+          )
+        )
+
+        collector.poll_queues_once
+
+        rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }
+        states = rows.to_h { |row| [row["destination"], row["state"]] }
+
+        assert_equal "stalled", states["stalled"]
+        assert_equal "ok", states["busy"]
+        assert_equal "ok", states["idle"]
+      end
+    end
+  end
+
+  # An actual failure is the more urgent fact — it wins over "stalled"
+  # even when both conditions are technically true at once.
+  def test_poll_queues_once_prefers_failing_over_stalled_when_both_apply
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new(project_path => %w[default]),
+          queue_source: FakeQueueSource.new(["default"] => { ready: 5, failed: 1, workers: 0 })
+        )
+
+        collector.poll_queues_once
+
+        row = JSON.parse(File.read(state_path)).find { |e| e["kind"] == "queue" }
+
+        assert_equal "failing", row["state"]
+      end
+    end
+  end
+
   # OWLOOK_QUEUE_POLL_INTERVAL's default was picked as an estimate, never
   # measured against a real server (see README) — this is what makes that
   # measurable without guessing: the actual cycle duration lands in the

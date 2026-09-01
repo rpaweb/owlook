@@ -30,6 +30,20 @@ function badCount(entries) {
   return entries.filter(function(entry) { return isBad(entry.state) }).length
 }
 
+// A third tier, deliberately not folded into BAD_STATES — "stalled"
+// (Collector#queue_state: ready jobs, zero workers) is concerning, not
+// broken. Merging it into isBad would mean it's indistinguishable from
+// an actual failure everywhere this panel signals bad (the bar pill's
+// dot, the tab strip, the row itself) — the whole reason ThemeColors.warn
+// exists is to give it a color of its own instead.
+function isStalled(state) {
+  return state === "stalled"
+}
+
+function anyStalled(entries) {
+  return entries.some(function(entry) { return isStalled(entry.state) })
+}
+
 // Global (not per-project/per-section, unlike ciLoading/destinationsLoading
 // below) — the bar pill's own status dot needs one flat "is anything at all
 // still resolving" signal, not a per-tab one. Both CI and queue placeholders
@@ -209,6 +223,9 @@ function destBadgeLabel(entry) {
   // and not silence (which reads as "nothing configured here").
   if (entry.state === "checking") return "checking…"
   if (entry.state === "unreachable") return "unreachable"
+  // "0 failed" would be technically true and substantively misleading —
+  // the actual news here is that nothing's working the backlog at all.
+  if (entry.state === "stalled") return "stalled"
   var details = entry.details || {}
   var failed = details.failed !== undefined ? details.failed : "?"
   return failed + " failed"
@@ -226,7 +243,11 @@ function destStats(entry) {
   var d = entry.details || {}
   var stats = []
   if (d.workers !== undefined) {
-    stats.push({ n: String(d.workers), l: "workers", warn: d.workers === 0 })
+    // Same condition as Collector#queue_state's "stalled" — 0 workers on
+    // its own isn't concerning (plenty of setups scale workers to zero
+    // when there's nothing to do); it only matters paired with a real
+    // backlog waiting on them.
+    stats.push({ n: String(d.workers), l: "workers", warn: d.workers === 0 && d.ready > 0 })
   }
   if (d.ready !== undefined && d.ready > 0 && d.oldest !== undefined) {
     stats.push({ n: String(d.oldest), l: "oldest", warn: false })
@@ -258,6 +279,17 @@ function projectIsBad(group) {
   if (group.ci.some(function(entry) { return isBad(entry.state) })) return true
   return group.destinations.some(function(dest) {
     return (dest.deploy && isBad(dest.deploy.state)) || (dest.queue && isBad(dest.queue.state))
+  })
+}
+
+// Only ever a queue thing today — nothing in v1 produces a "stalled" CI
+// or deploy state (see Collector#queue_state), but this reads group.ci
+// the same shape as projectIsBad anyway so it doesn't quietly go stale
+// if that changes later.
+function projectIsStalled(group) {
+  if (group.ci.some(function(entry) { return isStalled(entry.state) })) return true
+  return group.destinations.some(function(dest) {
+    return (dest.deploy && isStalled(dest.deploy.state)) || (dest.queue && isStalled(dest.queue.state))
   })
 }
 
@@ -358,6 +390,9 @@ if (typeof module !== "undefined") {
     anyBad: anyBad,
     anyLoading: anyLoading,
     badCount: badCount,
+    isStalled: isStalled,
+    anyStalled: anyStalled,
+    projectIsStalled: projectIsStalled,
     isRealCheck: isRealCheck,
     realCheckCount: realCheckCount,
     barText: barText,
