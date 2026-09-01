@@ -250,8 +250,10 @@ Panel {
           anchors.top: projectNameText.bottom
           anchors.topMargin: Style.space(10)
           anchors.left: parent.left
+          anchors.leftMargin: -Style.space(8)
           anchors.right: parent.right
-          height: Style.space(88)
+          anchors.rightMargin: -Style.space(8)
+          height: Style.space(108)
 
           // "no_runs" rows exist so the project keeps its tab (see
           // Collector#poll_project_ci) but they're not a branch that runs
@@ -263,75 +265,95 @@ Panel {
           readonly property var rows: Model.ciRunRows(root.activeProject ? root.activeProject.ci : [])
           readonly property bool loading: Model.ciLoading(root.activeProject ? root.activeProject.ci : [])
 
-          PanelSectionHeader {
-            id: ciHeader
-            anchors.top: parent.top
-            // The timing suffix is withheld while loading, not just left
-            // to read whatever's on disk — otherwise a duration from the
-            // *previous* cycle would sit right next to a spinner saying
-            // this one isn't done yet.
-            text: "CI — " + Model.trackedLabel(ciSection.rows.length)
-              + (ciSection.loading ? "" : Model.timingSuffix(root.activeProject ? root.activeProject.ciTiming : null))
-            foreground: root.barForeground
-          }
+          // The section's own bounded card — matches the mockup's
+          // panel-frame, which wraps the header together with its rows as
+          // one visible unit, not just the rows floating loose under a
+          // header sitting outside it.
+          Rectangle {
+            id: ciCard
+            anchors.fill: parent
+            radius: Style.cornerRadius
+            color: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.035)
+            border.width: 1
+            border.color: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.08)
 
-          Text {
-            visible: !ciSection.loading && ciSection.rows.length === 0
-            anchors.top: ciHeader.bottom
-            anchors.topMargin: Style.space(6)
-            width: parent.width
-            text: "no CI runs found"
-            color: Qt.darker(root.barForeground, 1.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-            font.italic: true
-          }
-
-          Item {
-            visible: ciSection.loading
-            anchors.top: ciHeader.bottom
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-
-            LoadingSpinner {
-              anchors.centerIn: parent
-              foreground: Color.accent
-              running: parent.visible
+            PanelSectionHeader {
+              id: ciHeader
+              anchors.top: parent.top
+              anchors.topMargin: Style.space(8)
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(8)
+              fontSize: Style.font.caption + 2
+              // The timing suffix is withheld while loading, not just left
+              // to read whatever's on disk — otherwise a duration from the
+              // *previous* cycle would sit right next to a spinner saying
+              // this one isn't done yet.
+              text: "CI — " + Model.trackedLabel(ciSection.rows.length)
+                + (ciSection.loading ? "" : Model.timingSuffix(root.activeProject ? root.activeProject.ciTiming : null))
+              foreground: root.barForeground
             }
-          }
 
-          ListView {
-            visible: !ciSection.loading && ciSection.rows.length > 0
-            anchors.top: ciHeader.bottom
-            anchors.topMargin: Style.space(4)
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            spacing: Style.space(6)
-            model: ciSection.rows
-            delegate: CiRow {}
+            Text {
+              visible: !ciSection.loading && ciSection.rows.length === 0
+              anchors.top: ciHeader.bottom
+              anchors.topMargin: Style.space(10)
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(8)
+              text: "no CI runs found"
+              color: Qt.darker(root.barForeground, 1.4)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.italic: true
+            }
 
-            ScrollBar.vertical: ScrollBar {
-              policy: ScrollBar.AsNeeded
-              width: Style.space(3)
+            Item {
+              visible: ciSection.loading
+              anchors.top: ciHeader.bottom
+              anchors.topMargin: Style.space(10)
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+
+              LoadingSpinner {
+                anchors.centerIn: parent
+                foreground: Color.accent
+                running: parent.visible
+              }
+            }
+
+            ListView {
+              visible: !ciSection.loading && ciSection.rows.length > 0
+              anchors.top: ciHeader.bottom
+              anchors.topMargin: Style.space(10)
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              anchors.margins: Style.space(6)
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              spacing: Style.space(6)
+              model: ciSection.rows
+              delegate: CiRow {}
+
+              ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                width: Style.space(3)
+              }
             }
           }
         }
 
-        // QUEUES: everything left over, down to the bottom edge. Deploy
-        // status has no row of its own here — nothing in v1 produces a
-        // "deploy" observation (see Collector), so there's nothing real to
-        // show yet; adding a permanent placeholder for it would just be
-        // noise until Kamal hooks land.
+        // ENVIRONMENTS: everything left over, down to the bottom edge.
+        // Each destination's card shows DEPLOY (what's running, and how
+        // it compares to CI) and QUEUE (Solid Queue health) together.
         Item {
           id: queuesSection
           anchors.top: ciSection.bottom
-          anchors.topMargin: Style.space(20)
+          anchors.topMargin: Style.space(10)
           anchors.left: parent.left
+          anchors.leftMargin: -Style.space(8)
           anchors.right: parent.right
+          anchors.rightMargin: -Style.space(8)
           anchors.bottom: parent.bottom
 
           readonly property var destinations: root.activeProject ? root.activeProject.destinations : []
@@ -343,56 +365,71 @@ Panel {
           // in with rows still waiting.
           readonly property bool loading: Model.destinationsLoading(queuesSection.destinations)
 
-          PanelSectionHeader {
-            id: queuesHeader
-            anchors.top: parent.top
-            text: "ENVIRONMENTS — " + Model.trackedLabel(queuesSection.destCount)
-              + (queuesSection.loading ? "" : Model.timingSuffix(root.activeProject ? root.activeProject.queueTiming : null))
-            foreground: root.barForeground
-          }
+          // Same bounded-card treatment as CI's own — see ciCard's comment.
+          Rectangle {
+            id: environmentsCard
+            anchors.fill: parent
+            radius: Style.cornerRadius
+            color: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.035)
+            border.width: 1
+            border.color: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.08)
 
-          Text {
-            visible: queuesSection.destCount === 0
-            anchors.top: queuesHeader.bottom
-            anchors.topMargin: Style.space(6)
-            width: parent.width
-            text: "no Kamal destinations configured"
-            color: Qt.darker(root.barForeground, 1.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-            font.italic: true
-          }
-
-          Item {
-            visible: queuesSection.destCount > 0 && queuesSection.loading
-            anchors.top: queuesHeader.bottom
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-
-            LoadingSpinner {
-              anchors.centerIn: parent
-              foreground: Color.accent
-              running: parent.visible
+            PanelSectionHeader {
+              id: queuesHeader
+              anchors.top: parent.top
+              anchors.topMargin: Style.space(8)
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(8)
+              fontSize: Style.font.caption + 2
+              text: "ENVIRONMENTS — " + Model.trackedLabel(queuesSection.destCount)
+                + (queuesSection.loading ? "" : Model.timingSuffix(root.activeProject ? root.activeProject.queueTiming : null))
+              foreground: root.barForeground
             }
-          }
 
-          ListView {
-            visible: queuesSection.destCount > 0 && !queuesSection.loading
-            anchors.top: queuesHeader.bottom
-            anchors.topMargin: Style.space(4)
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            spacing: Style.space(6)
-            model: queuesSection.destinations
-            delegate: DestRow {}
+            Text {
+              visible: queuesSection.destCount === 0
+              anchors.top: queuesHeader.bottom
+              anchors.topMargin: Style.space(6)
+              anchors.left: parent.left
+              anchors.leftMargin: Style.space(8)
+              text: "no Kamal destinations configured"
+              color: Qt.darker(root.barForeground, 1.4)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.italic: true
+            }
 
-            ScrollBar.vertical: ScrollBar {
-              policy: ScrollBar.AsNeeded
-              width: Style.space(3)
+            Item {
+              visible: queuesSection.destCount > 0 && queuesSection.loading
+              anchors.top: queuesHeader.bottom
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+
+              LoadingSpinner {
+                anchors.centerIn: parent
+                foreground: Color.accent
+                running: parent.visible
+              }
+            }
+
+            ListView {
+              visible: queuesSection.destCount > 0 && !queuesSection.loading
+              anchors.top: queuesHeader.bottom
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              anchors.margins: Style.space(6)
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+              spacing: Style.space(6)
+              model: queuesSection.destinations
+              delegate: DestRow {}
+
+              ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+                width: Style.space(3)
+              }
             }
           }
         }
@@ -872,7 +909,7 @@ Panel {
     Rectangle {
       id: destBg
       width: parent.width
-      height: destContent.implicitHeight + Style.space(18)
+      height: destContent.implicitHeight + Style.space(12)
       radius: Style.cornerRadius
       // Always the same neutral tint, not colored by bad/stalled — one
       // card now holds two independent categories (DEPLOY, QUEUE), and
@@ -937,7 +974,7 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
         anchors.leftMargin: Style.space(12)
         anchors.rightMargin: Style.space(9)
-        spacing: Style.space(7)
+        spacing: Style.space(5)
 
         Text {
           id: destName
@@ -971,14 +1008,21 @@ Panel {
             spacing: Style.space(6)
 
             Text {
+              // Row only manages x for its children, not y — without this,
+              // both texts sit top-aligned at y:0 and the taller SHA text
+              // (bigger font) visibly droops below the shorter "DEPLOY"
+              // label instead of lining up with it. queueEyebrow below
+              // already has this; this one was missing it.
+              anchors.verticalCenter: parent.verticalCenter
               text: "DEPLOY"
               color: Qt.darker(root.barForeground, 1.6)
               font.family: Style.font.family
-              font.pixelSize: Math.round(Style.font.caption * 0.8)
+              font.pixelSize: Math.round(Style.font.caption * 0.8) + 1
               font.bold: true
             }
 
             Text {
+              anchors.verticalCenter: parent.verticalCenter
               visible: text !== ""
               text: Model.deployShaLabel(destRow.deployEntry)
               color: root.barForeground
@@ -1052,7 +1096,7 @@ Panel {
               text: "QUEUE"
               color: Qt.darker(root.barForeground, 1.6)
               font.family: Style.font.family
-              font.pixelSize: Math.round(Style.font.caption * 0.8)
+              font.pixelSize: Math.round(Style.font.caption * 0.8) + 1
               font.bold: true
             }
 
