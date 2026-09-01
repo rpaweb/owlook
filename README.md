@@ -53,6 +53,16 @@ alt-tabbing between GitHub, a terminal, and a queue dashboard.
   least once (same as for any other use of it) — owlook never touches or
   stores a passphrase.
 
+  **A destination stuck on `unreachable` even though you can SSH to that
+  server fine yourself** almost always means the key that server accepts
+  isn't in gpg-agent's SSH support — the *only* agent this can reach (see
+  above), regardless of what your interactive terminal uses. Common with
+  a different key per client/project: your terminal's plain `ssh-agent`
+  (or an explicit `IdentityFile` in `~/.ssh/config`) has it, gpg-agent
+  doesn't. Add it there too — `SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/gnupg/S.gpg-agent.ssh
+  ssh-add ~/.ssh/that_key` — and the next poll should pick it up with no
+  restart needed.
+
   A destination the collector has just discovered (right after it starts,
   or a destination newly added to `deploy*.yml`) gets a `state: "checking"`
   row the instant it's found — reading Kamal's destinations is a local
