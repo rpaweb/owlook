@@ -725,10 +725,11 @@ Panel {
     readonly property bool bad: Model.isBad(ciRow.modelData.state)
     readonly property string verdictKind: Model.ciVerdictIcon(ciRow.modelData.state) || ""
     readonly property string workflowLabel: Model.ciWorkflowLabel(ciRow.modelData)
-    // A job count mid-run only reflects whichever jobs happen to have
-    // finished so far, not the eventual result — a spinner says "still
-    // going, wait for it" instead of a number that reads as final.
-    readonly property bool running: ciRow.modelData.state === "in_progress"
+    // A job count while queued or mid-run only reflects whichever jobs
+    // happen to have finished so far (zero, if still queued), not the
+    // eventual result — a spinner says "still going, wait for it"
+    // instead of a number that reads as final.
+    readonly property bool running: ciRow.modelData.state === "in_progress" || ciRow.modelData.state === "queued"
 
     width: ListView.view ? ListView.view.width : 0
     implicitHeight: Math.max(ciPill.height, ciTextRow.implicitHeight)
