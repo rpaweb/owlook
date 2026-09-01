@@ -24,6 +24,16 @@ Panel {
   manageIpc: false
 
   property var anchorItem: null
+  // The bar's own module slot holds BarWidget.qml's root, not this file's
+  // — Panel.qml only ever loads as a child Loader inside it (see
+  // BarWidget.qml). Bar.qml's open-panel underline compares
+  // activePopout (set from KeyboardPanel's owner, below) against that
+  // slot's own activeItem, so owner has to be the BarWidget root for the
+  // match to ever succeed — self-referencing here (the bug this fixes)
+  // meant the two could never be equal, and the indicator never showed.
+  // Defaults to root so nothing breaks before BarWidget.qml's
+  // injectPanel() sets the real one.
+  property var barWidgetRoot: root
   property int activeTabIndex: 0
   property bool showingSettings: false
 
@@ -98,7 +108,7 @@ Panel {
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
-    owner: root
+    owner: root.barWidgetRoot
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher

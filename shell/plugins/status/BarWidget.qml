@@ -16,12 +16,23 @@ BarWidget {
     if (panelItem) panelItem.toggle()
   }
 
+  // Bar.qml's popout coordinator calls close() on whichever owner it had
+  // registered when a different panel takes over (see barWidgetRoot's own
+  // comment in Panel.qml for why root, not panelItem, is what gets
+  // registered as that owner) — without this, switching from owlook's
+  // panel straight to another bar icon's would leave this one still
+  // marked open internally, not just visually stuck.
+  function close() {
+    if (panelItem) panelItem.close()
+  }
+
   function injectPanel() {
     var target = panelItem
     if (!target) return
     if ("bar" in target) target.bar = root.bar
     if ("settings" in target) target.settings = root.settings
     if ("anchorItem" in target) target.anchorItem = button
+    if ("barWidgetRoot" in target) target.barWidgetRoot = root
   }
 
   implicitWidth: button.implicitWidth
