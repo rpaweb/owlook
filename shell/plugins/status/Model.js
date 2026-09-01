@@ -50,7 +50,11 @@ function isStalled(state) {
 }
 
 function anyStalled(entries) {
-  return entries.some(function(entry) { return isStalled(entry.state) })
+  // A deploy is never state: "stalled" (that's a queue-only state) — its
+  // own "behind" fact lives in details, via deployFreshnessKind. Calling
+  // that on a non-deploy entry is harmless: no entry.details.fresh_branch
+  // means "unknown", never "stale".
+  return entries.some(function(entry) { return isStalled(entry.state) || deployFreshnessKind(entry) === "stale" })
 }
 
 // Global (not per-project/per-section, unlike ciLoading/destinationsLoading
@@ -276,6 +280,41 @@ function destStats(entry) {
   return stats
 }
 
+// Short SHA for the DEPLOY block's left side — the standard 7-character
+// git abbreviation, not the full 40. Empty until a real check has
+// actually landed a version (never during "checking"/"unreachable").
+function deployShaLabel(entry) {
+  if (!entry || !entry.version) return ""
+  return String(entry.version).slice(0, 7)
+}
+
+// DEPLOY block's status badge. Unlike the QUEUE badge (always a failed
+// count once real data exists), this one has three different sources: a
+// provisional state (checking/unreachable, same language as QUEUE's
+// own), or — once there's a real result — whether DeployFreshness found
+// a match at all. No match isn't a failure (a force-push broke the
+// relationship, or the commit just isn't fetched locally yet — see
+// DeployFreshness's own comment), so it reads as neutral, not alarming.
+function deployBadgeLabel(entry) {
+  if (!entry) return ""
+  if (entry.state === "checking") return "checking…"
+  if (entry.state === "unreachable") return "unreachable"
+  var details = entry.details || {}
+  if (details.fresh_branch === undefined) return "unmatched"
+  return details.behind > 0 ? details.behind + " behind" : "at " + details.fresh_branch
+}
+
+// "fresh" (the deployed SHA matches a branch's current head exactly),
+// "stale" (behind one), or "unknown" (DeployFreshness found no match at
+// all). Only meaningful once state is "ok" — checking/unreachable have
+// their own treatment already, same as QUEUE's stalled/bad.
+function deployFreshnessKind(entry) {
+  if (!entry || entry.state !== "ok") return "unknown"
+  var details = entry.details || {}
+  if (details.fresh_branch === undefined) return "unknown"
+  return details.behind > 0 ? "stale" : "fresh"
+}
+
 // The last path segment of "owner/repo" — what a tab shows. The owner is
 // still there in the project-name line inside the tab's own content; the
 // tab strip itself is tight on space and every project here is already
@@ -307,7 +346,8 @@ function projectIsBad(group) {
 function projectIsStalled(group) {
   if (group.ci.some(function(entry) { return isStalled(entry.state) })) return true
   return group.destinations.some(function(dest) {
-    return (dest.deploy && isStalled(dest.deploy.state)) || (dest.queue && isStalled(dest.queue.state))
+    return (dest.deploy && (isStalled(dest.deploy.state) || deployFreshnessKind(dest.deploy) === "stale")) ||
+      (dest.queue && isStalled(dest.queue.state))
   })
 }
 
@@ -428,6 +468,9 @@ if (typeof module !== "undefined") {
     timingSuffix: timingSuffix,
     destBadgeLabel: destBadgeLabel,
     destStats: destStats,
+    deployShaLabel: deployShaLabel,
+    deployBadgeLabel: deployBadgeLabel,
+    deployFreshnessKind: deployFreshnessKind,
     shortProjectName: shortProjectName,
     projectIsBad: projectIsBad,
     destinationsLoading: destinationsLoading,
