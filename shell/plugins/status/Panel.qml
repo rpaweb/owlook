@@ -784,6 +784,12 @@ Panel {
     required property var modelData
 
     readonly property bool bad: Model.isBad(ciRow.modelData.state)
+    // Same "fresh" green DEPLOY already uses (themeColors.success) — a
+    // clean pass earns the same positive color there, not just neutral
+    // gray. Every other non-bad state (queued, running, skipped,
+    // neutral, stale, no runs, checking) stays neutral: none of them is
+    // actually a clean pass.
+    readonly property bool passed: ciRow.modelData.state === "success"
     readonly property string verdictKind: Model.ciVerdictIcon(ciRow.modelData.state) || ""
     readonly property string workflowLabel: Model.ciWorkflowLabel(ciRow.modelData)
     // A job count while queued or mid-run only reflects whichever jobs
@@ -806,7 +812,9 @@ Panel {
       radius: Style.cornerRadius
       color: ciRow.bad
         ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.16)
-        : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.08)
+        : ciRow.passed
+          ? Qt.rgba(themeColors.success.r, themeColors.success.g, themeColors.success.b, 0.16)
+          : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.08)
 
       Row {
         id: ciPillContent
@@ -822,14 +830,14 @@ Panel {
           anchors.verticalCenter: parent.verticalCenter
           visible: ciRow.verdictKind !== ""
           kind: ciRow.verdictKind
-          strokeColor: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+          strokeColor: ciRow.bad ? root.urgent : (ciRow.passed ? themeColors.success : Qt.darker(root.barForeground, 1.15))
         }
 
         Text {
           id: ciPillText
           anchors.verticalCenter: parent.verticalCenter
           text: Model.ciBadgeLabel(ciRow.modelData.state)
-          color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+          color: ciRow.bad ? root.urgent : (ciRow.passed ? themeColors.success : Qt.darker(root.barForeground, 1.15))
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
           font.bold: true
@@ -895,7 +903,7 @@ Panel {
           visible: !ciRow.running
           anchors.verticalCenter: parent.verticalCenter
           text: Model.ciSummary(ciRow.modelData)
-          color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+          color: ciRow.bad ? root.urgent : (ciRow.passed ? themeColors.success : Qt.darker(root.barForeground, 1.15))
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
         }
