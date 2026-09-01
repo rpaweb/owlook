@@ -238,7 +238,8 @@ class Owlook::CollectorTest < Minitest::Test
           queue_source: FakeQueueSource.new(
             ["default"] => { ready: 2, failed: 0 },
             ["staging"] => { ready: 0, failed: 3 }
-          )
+          ),
+          deploy_source: FakeDeploySource.new({})
         )
 
         collector.poll_queues_once
@@ -288,7 +289,8 @@ class Owlook::CollectorTest < Minitest::Test
             ["busy"] => { ready: 5, failed: 0, workers: 2 },
             # Nothing waiting and no workers — nothing to be stalled about.
             ["idle"] => { ready: 0, failed: 0, workers: 0 }
-          )
+          ),
+          deploy_source: FakeDeploySource.new({})
         )
 
         collector.poll_queues_once
@@ -315,7 +317,8 @@ class Owlook::CollectorTest < Minitest::Test
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}),
           kamal_source: FakeKamalSource.new(project_path => %w[default]),
-          queue_source: FakeQueueSource.new(["default"] => { ready: 5, failed: 1, workers: 0 })
+          queue_source: FakeQueueSource.new(["default"] => { ready: 5, failed: 1, workers: 0 }),
+          deploy_source: FakeDeploySource.new({})
         )
 
         collector.poll_queues_once
@@ -343,6 +346,7 @@ class Owlook::CollectorTest < Minitest::Test
           github_source: FakeGithubSource.new({}),
           kamal_source: FakeKamalSource.new(project_path => ["default"]),
           queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 }),
+          deploy_source: FakeDeploySource.new({}),
           logger: ->(message) { logged << message }
         )
 
@@ -371,7 +375,8 @@ class Owlook::CollectorTest < Minitest::Test
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}),
           kamal_source: FakeKamalSource.new(project_path => destinations),
-          queue_source: SlowQueueSource.new(delay: 0.04, destinations: destinations)
+          queue_source: SlowQueueSource.new(delay: 0.04, destinations: destinations),
+          deploy_source: FakeDeploySource.new({})
         )
 
         started = Time.now
@@ -410,6 +415,7 @@ class Owlook::CollectorTest < Minitest::Test
         github_source: FakeGithubSource.new({}),
         kamal_source: FakeKamalSource.new(project_path => destinations),
         queue_source: ProbingQueueSource.new(delay: 0.02, destinations: destinations, probe: probe),
+        deploy_source: FakeDeploySource.new({}),
         max_concurrent_requests: 3
       )
 
@@ -434,7 +440,8 @@ class Owlook::CollectorTest < Minitest::Test
         writer: writer,
         github_source: FakeGithubSource.new({}),
         kamal_source: FakeKamalSource.new(project_path => ["default"]),
-        queue_source: FakeQueueSource.new(["default"] => { ready: 2, failed: 0 })
+        queue_source: FakeQueueSource.new(["default"] => { ready: 2, failed: 0 }),
+        deploy_source: FakeDeploySource.new({})
       )
 
       collector.poll_queues_once
@@ -462,7 +469,8 @@ class Owlook::CollectorTest < Minitest::Test
         writer: writer,
         github_source: FakeGithubSource.new({}),
         kamal_source: FakeKamalSource.new(project_path => ["default"]),
-        queue_source: FakeQueueSource.new(["default"] => { ready: 2, failed: 0 })
+        queue_source: FakeQueueSource.new(["default"] => { ready: 2, failed: 0 }),
+        deploy_source: FakeDeploySource.new({})
       )
 
       collector.poll_queues_once
@@ -894,6 +902,7 @@ class Owlook::CollectorTest < Minitest::Test
           github_source: FakeGithubSource.new({}),
           kamal_source: FakeKamalSource.new(project_path => ["default"]),
           queue_source: FakeQueueSource.new(["default"] => counts),
+          deploy_source: FakeDeploySource.new({}),
           notifier: notifier
         )
 
@@ -926,7 +935,8 @@ class Owlook::CollectorTest < Minitest::Test
           writer: Owlook::StateWriter.new(state_path),
           github_source: FakeGithubSource.new({}),
           kamal_source: FakeKamalSource.new(project_path => %w[default staging]),
-          queue_source: FakeQueueSource.new(["default"] => { ready: 2, failed: 0 }) # "staging" not stubbed -> fails
+          queue_source: FakeQueueSource.new(["default"] => { ready: 2, failed: 0 }), # "staging" not stubbed -> fails
+          deploy_source: FakeDeploySource.new({})
         )
 
         collector.poll_queues_once
@@ -943,6 +953,128 @@ class Owlook::CollectorTest < Minitest::Test
         assert_equal "unreachable", staging_row["state"]
         assert_equal "queue", staging_row["kind"]
         assert_includes staging_row["details"]["error"], "not stubbed"
+      end
+    end
+  end
+
+  # Runs alongside the queue check, not instead of it — same poll cycle
+  # produces both a "queue" and a "deploy" row per destination.
+  def test_poll_queues_once_records_a_deploy_observation_per_destination
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new(project_path => %w[default staging]),
+          queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 }, ["staging"] => { ready: 0, failed: 0 }),
+          deploy_source: FakeDeploySource.new(
+            ["default"] => "44d49f4ed11652b520c00e6ee35d848e5a217fc5",
+            ["staging"] => "f22ab54907423f2bdf39159ed8a04fa027f67736"
+          )
+        )
+
+        collector.poll_queues_once
+
+        deploy_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "deploy" }
+        deploy_rows = deploy_rows.sort_by { |e| e["destination"] }
+
+        assert_equal 2, deploy_rows.size
+
+        default_row, staging_row = deploy_rows
+
+        assert_equal "acme/widgets", default_row["project"]
+        assert_equal "ok", default_row["state"]
+        assert_equal "44d49f4ed11652b520c00e6ee35d848e5a217fc5", default_row["version"]
+
+        assert_equal "ok", staging_row["state"]
+        assert_equal "f22ab54907423f2bdf39159ed8a04fa027f67736", staging_row["version"]
+      end
+    end
+  end
+
+  def test_poll_queues_once_writes_a_deploy_checking_placeholder_before_the_real_check_completes
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      writer = RecordingWriter.new
+      collector = Owlook::Collector.new(
+        config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+        store: Owlook::Store.new,
+        writer: writer,
+        github_source: FakeGithubSource.new({}),
+        kamal_source: FakeKamalSource.new(project_path => ["default"]),
+        queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 }),
+        deploy_source: FakeDeploySource.new(["default"] => "44d49f4ed11652b520c00e6ee35d848e5a217fc5")
+      )
+
+      collector.poll_queues_once
+
+      checking_writes = writer.snapshots.select { |snap| snap.any? { |row| row[:kind] == "deploy" && row[:state] == "checking" } }
+
+      assert_equal 1, checking_writes.size, "expected exactly one write with a deploy checking placeholder"
+
+      final = writer.snapshots.last
+
+      assert_equal "ok", final.find { |row| row[:kind] == "deploy" && row[:destination] == "default" }[:state]
+    end
+  end
+
+  def test_poll_queues_once_records_an_unreachable_deploy_row_when_the_check_fails
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new(project_path => ["default"]),
+          queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 }),
+          deploy_source: FakeDeploySource.new({}) # not stubbed -> fails
+        )
+
+        collector.poll_queues_once
+
+        row = JSON.parse(File.read(state_path)).find { |e| e["kind"] == "deploy" }
+
+        assert_equal "unreachable", row["state"]
+        assert_includes row["details"]["error"], "not stubbed"
+      end
+    end
+  end
+
+  # The real bug this covers: notify_on_transition used to label every
+  # non-CI observation "queue" — a deploy transition would have shown up
+  # in a desktop notification as "queue production: unreachable" instead
+  # of "deploy production: unreachable".
+  def test_poll_queues_once_labels_a_deploy_notification_as_deploy_not_queue
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        deploy_routes = { ["default"] => "44d49f4ed11652b520c00e6ee35d848e5a217fc5" }
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new(project_path => ["default"]),
+          queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 }),
+          deploy_source: FakeDeploySource.new(deploy_routes),
+          notifier: notifier
+        )
+
+        collector.poll_queues_once
+
+        assert_empty notifier.sent, "no notification for the first-ever check"
+
+        deploy_routes.delete(["default"]) # next check fails -> unreachable
+        collector.poll_queues_once
+
+        sent = notifier.sent.find { |n| n.description.include?("deploy") }
+
+        assert sent, "expected a deploy notification, got: #{notifier.sent.map(&:description)}"
+        assert_includes sent.description, "deploy default"
       end
     end
   end
@@ -1119,7 +1251,8 @@ class Owlook::CollectorTest < Minitest::Test
             writer: Owlook::StateWriter.new(state_path),
             github_source: FakeGithubSource.new({}),
             kamal_source: FakeKamalSource.new(project_a => ["default"], project_b => ["default"]),
-            queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 })
+            queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 }),
+            deploy_source: FakeDeploySource.new({})
           )
           far_future = Time.now + 3600
           # Primed the way a real poll would leave it — @known_projects
@@ -1354,6 +1487,18 @@ class Owlook::CollectorTest < Minitest::Test
 
     def status(project_path:, destination:)
       @routes.fetch([destination]) { raise Owlook::Sources::Queue::CommandFailedError.new(["kamal"], FakeStatus.new(1), "not stubbed") }
+    end
+
+    FakeStatus = Struct.new(:exitstatus)
+  end
+
+  class FakeDeploySource
+    def initialize(routes)
+      @routes = routes
+    end
+
+    def version(project_path:, destination:)
+      @routes.fetch([destination]) { raise Owlook::Sources::Deploy::CommandFailedError.new(["kamal"], FakeStatus.new(1), "not stubbed") }
     end
 
     FakeStatus = Struct.new(:exitstatus)

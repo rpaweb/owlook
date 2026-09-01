@@ -40,6 +40,7 @@ module Owlook
     # hundreds of real branches/threads to observe it.
     def initialize(config_loader:, store:, writer:, github_source:,
                    kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new,
+                   deploy_source: Sources::Deploy.new,
                    workflows_source: Sources::Workflows.new,
                    settings_loader: -> { WidgetSettings.load },
                    notifier: Notifier.new,
@@ -51,6 +52,7 @@ module Owlook
       @github_source = github_source
       @kamal_source = kamal_source
       @queue_source = queue_source
+      @deploy_source = deploy_source
       @workflows_source = workflows_source
       @settings_loader = settings_loader
       @notifier = notifier
@@ -400,6 +402,7 @@ module Owlook
       # Written immediately, before the slow checks below, instead of
       # waiting for the whole cycle to finish like poll_ci_once does.
       announce_new_destinations(project, destinations)
+      announce_new_deploys(project, destinations)
       write_snapshot
 
       poll_destinations_concurrently(path, project, destinations)
@@ -424,6 +427,24 @@ module Owlook
         poll_destination_queue(path, project, destination)
       rescue StandardError => e
         log("#{project}@#{destination}: queue poll failed, skipping this cycle (#{e.class}: #{e.message})")
+      end
+      # A second full pass, not merged into the loop above — kamal app
+      # version and kamal app exec are two separate SSH round-trips
+      # regardless, and keeping them as two passes (like CI/queue stay
+      # two entirely separate concerns everywhere else in this file)
+      # reads clearer than one task doing two unrelated things. Measured
+      # live rather than guessed at: merging wouldn't actually help when
+      # a project's destination count sits under max_concurrent_requests
+      # (the common case) — the critical path is still (that project's
+      # slowest queue check) + (its slowest deploy check) either way,
+      # whichever destination each happens to land on. `kamal app
+      # version` itself is cheap (~1s for two destinations, confirmed
+      # live) — a slow cycle is a slow queue check, same as before this.
+
+      work_concurrently(destinations) do |destination|
+        poll_destination_deploy(path, project, destination)
+      rescue StandardError => e
+        log("#{project}@#{destination}: deploy poll failed, skipping this cycle (#{e.class}: #{e.message})")
       end
     end
 
@@ -489,6 +510,35 @@ module Owlook
       )
     end
 
+    # Same shape as announce_new_destinations/pending_queue_observation —
+    # kept as its own pair rather than folded together, matching how CI
+    # and queue stay two fully separate concerns even though they can
+    # share a destination.
+    def announce_new_deploys(project, destinations)
+      destinations.each do |destination|
+        pending = pending_deploy_observation(project, destination)
+        next if @store.known?(pending.key)
+
+        @store.record(pending)
+      end
+    end
+
+    def pending_deploy_observation(project, destination)
+      Observation.new(
+        project: project,
+        kind: "deploy",
+        branch: nil,
+        destination: destination,
+        version: nil,
+        state: "checking",
+        details: {},
+        timestamp: Time.at(0),
+        author: nil,
+        source: "kamal-version",
+        observed_at: Time.now
+      )
+    end
+
     def poll_destination_queue(path, project, destination)
       counts = @queue_source.status(project_path: path, destination: destination)
       log("#{project}@#{destination} queue: ready=#{counts[:ready]} failed=#{counts[:failed]}")
@@ -543,6 +593,36 @@ module Owlook
                         ))
     end
 
+    # "ok"/"unreachable" only for now — comparing this SHA against what
+    # CI already verified for the same destination (to say "3 behind
+    # main" instead of just "here's a SHA") is a separate, later piece,
+    # not this one.
+    def poll_destination_deploy(path, project, destination)
+      sha = @deploy_source.version(project_path: path, destination: destination)
+      log("#{project}@#{destination} deploy: #{sha}")
+
+      record_deploy_observation(project, destination, state: "ok", version: sha)
+    rescue Sources::Deploy::CommandFailedError, Sources::Deploy::NoVersionFoundError => e
+      log("#{project}@#{destination} deploy check failed: #{e.message}")
+      record_deploy_observation(project, destination, state: "unreachable", details: { error: e.message[0, 300] })
+    end
+
+    def record_deploy_observation(project, destination, state:, version: nil, details: {})
+      record_and_notify(Observation.new(
+                          project: project,
+                          kind: "deploy",
+                          branch: nil,
+                          destination: destination,
+                          version: version,
+                          state: state,
+                          details: details,
+                          timestamp: Time.now,
+                          author: nil,
+                          source: "kamal-version",
+                          observed_at: Time.now
+                        ))
+    end
+
     # Every *real* CI/queue result (never the "checking" placeholder or the
     # ci_timing/queue_timing rows — those go through @store.record
     # directly) passes through here, so a state change can be compared
@@ -578,7 +658,13 @@ module Owlook
       return if was_bad == now_bad
 
       location = observation.kind == "ci" ? observation.branch : observation.destination
-      what = observation.kind == "ci" ? "CI" : "queue"
+      # Was a plain CI/queue binary before "deploy" existed — a deploy
+      # transition would have silently labeled itself "queue" otherwise.
+      what = case observation.kind
+             when "ci" then "CI"
+             when "deploy" then "deploy"
+             else "queue"
+             end
       headline = "Owlook — #{observation.project}"
 
       if now_bad
