@@ -54,6 +54,13 @@ Panel {
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
   readonly property string statePath: runtimeDir + "/owlook.json"
+  // The collector's own default (see bin/owlook-collector's OWLOOK_CONFIG
+  // fallback) — not read from anywhere live, since a systemd unit's
+  // environment isn't something this widget process can see. Right for
+  // the common case; a machine overriding OWLOOK_CONFIG for the service
+  // would need to edit the actual path by hand instead of via this
+  // shortcut.
+  readonly property string configPath: (Quickshell.env("HOME") || "") + "/.config/owlook/config.yml"
 
   property var entries: []
 
@@ -420,6 +427,60 @@ Panel {
           accent: Color.accent
           fontFamily: Style.font.family
           onClicked: root.toggleAllBranchesSetting()
+        }
+
+        // Quick access to config.yml, not an in-panel form to add/remove
+        // projects — omarchy-launch-editor already opens whatever editor
+        // the user has configured (GUI or terminal, wrapped in a floating
+        // terminal for the latter), so this is one exec call instead of
+        // reimplementing project management as a second UI.
+        Item {
+          id: configRow
+          width: parent.width
+          height: Math.max(44, configRowContent.implicitHeight + Style.space(16))
+
+          Rectangle {
+            anchors.fill: parent
+            radius: Style.cornerRadius
+            color: configMouse.containsMouse
+              ? Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.08)
+              : "transparent"
+          }
+
+          Column {
+            id: configRowContent
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Style.space(10)
+            anchors.rightMargin: Style.space(10)
+            spacing: Style.space(2)
+
+            Text {
+              text: "Edit tracked projects"
+              color: root.barForeground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+            }
+
+            Text {
+              width: parent.width
+              text: "Opens config.yml in your default editor — add or remove repositories there."
+              color: Qt.darker(root.barForeground, 1.4)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
+            }
+          }
+
+          MouseArea {
+            id: configMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: Quickshell.execDetached(["omarchy-launch-editor", root.configPath])
+          }
         }
       }
     }
