@@ -169,13 +169,54 @@ Panel {
             // `id: root` rather than this file's — the same gotcha the
             // tailscale/dropbox panels work around by reaching through a
             // distinctly-named sibling instead.
+            // Settings uses Omarchy's own nf-md-cog glyph (dev-gallery's
+            // own PanelActionButton demo labels the same codepoint
+            // "settings") via the standard button. Back swaps to a plain
+            // hand-drawn arrow instead — PanelActionButton only ever
+            // renders a font glyph (no icon-component slot to hand it a
+            // Shape), so the "back" state is its own small item rather
+            // than a different iconText on the same button.
             trailingControl: Component {
-              PanelActionButton {
-                iconText: "⚙"
-                tooltipText: heroBlock.settingsOpen ? "Back" : "Settings"
-                foreground: hero.foreground
-                fontFamily: hero.fontFamily
-                onClicked: heroBlock.toggleSettings()
+              Loader {
+                sourceComponent: heroBlock.settingsOpen ? backControl : settingsControl
+
+                Component {
+                  id: settingsControl
+                  PanelActionButton {
+                    iconText: "\u{f0493}"
+                    tooltipText: "Settings"
+                    foreground: hero.foreground
+                    fontFamily: hero.fontFamily
+                    onClicked: heroBlock.toggleSettings()
+                  }
+                }
+
+                Component {
+                  id: backControl
+                  Item {
+                    implicitWidth: Style.space(26)
+                    implicitHeight: Style.space(26)
+
+                    BackArrowIcon {
+                      anchors.centerIn: parent
+                      strokeColor: hero.foreground
+                    }
+
+                    MouseArea {
+                      id: backMouse
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: heroBlock.toggleSettings()
+                    }
+
+                    PanelToolTip {
+                      visible: backMouse.containsMouse
+                      text: "Back"
+                      fontFamily: hero.fontFamily
+                    }
+                  }
+                }
               }
             }
           }
@@ -960,6 +1001,42 @@ Panel {
         capStyle: ShapePath.RoundCap
         startX: vIcon.width * (5 / 24); startY: vIcon.height * (12 / 24)
         PathLine { x: vIcon.width * (19 / 24); y: vIcon.height * (12 / 24) }
+      }
+    }
+  }
+
+  // A plain left arrow — shaft + corner-bracket head, same technique as
+  // OpenIcon's own arrow (no fill, no enclosing shape around it this
+  // time; just the arrow itself, per the hero's back button below).
+  component BackArrowIcon: Item {
+    id: backArrow
+    property color strokeColor: Color.foreground
+
+    implicitWidth: Style.space(16)
+    implicitHeight: Style.space(16)
+
+    Shape {
+      anchors.fill: parent
+      preferredRendererType: Shape.CurveRenderer
+
+      ShapePath {
+        strokeWidth: Style.space(1.7)
+        strokeColor: backArrow.strokeColor
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        startX: backArrow.width * (18 / 24); startY: backArrow.height * (12 / 24)
+        PathLine { x: backArrow.width * (7 / 24); y: backArrow.height * (12 / 24) }
+      }
+
+      ShapePath {
+        strokeWidth: Style.space(1.7)
+        strokeColor: backArrow.strokeColor
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        joinStyle: ShapePath.RoundJoin
+        startX: backArrow.width * (13 / 24); startY: backArrow.height * (6 / 24)
+        PathLine { x: backArrow.width * (7 / 24); y: backArrow.height * (12 / 24) }
+        PathLine { x: backArrow.width * (13 / 24); y: backArrow.height * (18 / 24) }
       }
     }
   }
