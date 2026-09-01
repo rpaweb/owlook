@@ -319,9 +319,13 @@ class Owlook::CollectorTest < Minitest::Test
         collector.poll_queues_once
         elapsed = Time.now - started
 
-        # Sequential would be >= 3 * 0.04 = 0.12s; same generous headroom
-        # as the CI-side version of this test.
-        assert_operator elapsed, :<, 0.1,
+        # Sequential would be >= 3 * 0.04 = 0.12s. 0.12s of headroom over
+        # the ~0.04s concurrent ideal, matching the CI-side version of this
+        # test — the comment here used to claim that headroom while the
+        # threshold was actually 0.1s (less than the CI test's), which is
+        # exactly the kind of margin a busier CI runner can eat (confirmed
+        # live: a real run took 0.17s and failed).
+        assert_operator elapsed, :<, 0.12,
                         "expected concurrent destination polling, took #{elapsed.round(3)}s for 3 destinations at 0.04s each"
 
         queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }
