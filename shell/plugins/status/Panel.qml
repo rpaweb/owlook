@@ -219,6 +219,18 @@ Panel {
 
           model: root.projects
           delegate: ProjectTab {}
+
+          // root.projects is a fresh array every time the collector's data
+          // updates (Model.groupByProject rebuilds it from scratch each
+          // poll, even when nothing actually changed) — QML resets a
+          // ListView's scroll position whenever its model is reassigned
+          // like that, not just when the panel closes and reopens. Keeping
+          // the active tab in view here is what actually fixes it, rather
+          // than trying to preserve a raw contentX that a changed tab count
+          // could make meaningless anyway.
+          onModelChanged: Qt.callLater(function() {
+            tabsList.positionViewAtIndex(root.activeIndex, ListView.Contain)
+          })
         }
       }
 
@@ -641,7 +653,15 @@ Panel {
 
     MouseArea {
       anchors.fill: parent
-      onClicked: root.activeTabIndex = tabItem.index
+      cursorShape: Qt.PointingHandCursor
+      onClicked: {
+        root.activeTabIndex = tabItem.index
+        // A tab can be clickable while only partly visible (its label
+        // cut off at the Flickable's edge) — bring it fully into view
+        // on the same click, not just keep whatever position a later
+        // model refresh happens to preserve.
+        tabsList.positionViewAtIndex(tabItem.index, ListView.Contain)
+      }
     }
   }
 
