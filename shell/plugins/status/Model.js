@@ -52,7 +52,7 @@ function isStalled(state) {
 function anyStalled(entries) {
   // A deploy is never state: "stalled" (that's a queue-only state) — its
   // own "behind" fact lives in details, via deployFreshnessKind. Calling
-  // that on a non-deploy entry is harmless: no entry.details.fresh_branch
+  // that on a non-deploy entry is harmless: no entry.details.fresh_ref
   // means "unknown", never "stale".
   return entries.some(function(entry) { return isStalled(entry.state) || deployFreshnessKind(entry) === "stale" })
 }
@@ -317,18 +317,18 @@ function deployBadgeLabel(entry) {
   if (entry.state === "checking") return "checking…"
   if (entry.state === "unreachable") return "unreachable"
   var details = entry.details || {}
-  if (details.fresh_branch === undefined) return "unmatched"
-  return details.behind > 0 ? details.behind + " behind" : "at " + details.fresh_branch
+  if (details.fresh_ref === undefined) return "unmatched"
+  return details.behind > 0 ? details.behind + " behind" : "at " + details.fresh_ref
 }
 
-// "fresh" (the deployed SHA matches a branch's current head exactly),
+// "fresh" (the deployed SHA matches a branch or tag's head exactly),
 // "stale" (behind one), or "unknown" (DeployFreshness found no match at
 // all). Only meaningful once state is "ok" — checking/unreachable have
 // their own treatment already, same as QUEUE's stalled/bad.
 function deployFreshnessKind(entry) {
   if (!entry || entry.state !== "ok") return "unknown"
   var details = entry.details || {}
-  if (details.fresh_branch === undefined) return "unknown"
+  if (details.fresh_ref === undefined) return "unknown"
   return details.behind > 0 ? "stale" : "fresh"
 }
 

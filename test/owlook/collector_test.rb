@@ -1118,8 +1118,52 @@ class Owlook::CollectorTest < Minitest::Test
 
         deploy_row = JSON.parse(File.read(state_path)).find { |e| e["kind"] == "deploy" }
 
-        assert_equal "main", deploy_row["details"]["fresh_branch"]
+        assert_equal "main", deploy_row["details"]["fresh_ref"]
         assert_equal 1, deploy_row["details"]["behind"]
+      end
+    end
+  end
+
+  # Real scenario: a destination whose actual deploy trigger is a git tag
+  # (`on: push: tags: 'v*'`), not a branch — confirmed live against
+  # Luxtown's own production, whose deployed SHA matched its latest tag
+  # exactly while `main` had already moved on. The tag has to win here
+  # even though `main` is also a real ancestor, since it's the nearer
+  # (and the actually-relevant) match.
+  def test_poll_queues_once_prefers_the_latest_tag_over_the_branch_when_a_destination_deploys_from_a_tag
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      tagged_sha = `git -C #{project_path} rev-parse HEAD`.strip
+      Dir.chdir(project_path) { system("git", "tag", "v1.0.0", tagged_sha) }
+      Dir.chdir(project_path) do
+        File.write("second.txt", "hi")
+        system("git", "add", "second.txt")
+        system("git", "commit", "-q", "-m", "second commit")
+      end
+      newer_sha = `git -C #{project_path} rev-parse HEAD`.strip
+
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          %w[acme widgets main] => { head_sha: newer_sha, status: "completed", conclusion: "success",
+                                     updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        )
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source,
+          kamal_source: FakeKamalSource.new(project_path => ["production"]),
+          queue_source: FakeQueueSource.new(["production"] => { ready: 0, failed: 0 }),
+          deploy_source: FakeDeploySource.new(["production"] => tagged_sha)
+        )
+
+        collector.poll_ci_once
+        collector.poll_queues_once
+
+        deploy_row = JSON.parse(File.read(state_path)).find { |e| e["kind"] == "deploy" }
+
+        assert_equal "v1.0.0", deploy_row["details"]["fresh_ref"]
+        assert_equal 0, deploy_row["details"]["behind"]
       end
     end
   end

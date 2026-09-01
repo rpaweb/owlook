@@ -612,21 +612,25 @@ module Owlook
       record_deploy_observation(project, destination, state: "unreachable", details: { error: e.message[0, 300] })
     end
 
-    # Not which branch a destination "belongs to" (Kamal has no notion of
+    # Not which ref a destination "belongs to" (Kamal has no notion of
     # that) — is the SHA just deployed a real ancestor of any branch CI
-    # currently has a result for, in the local clone already on disk? See
-    # DeployFreshness's own comment for why the nearest match wins when
-    # more than one branch qualifies.
+    # currently has a result for, or of the project's latest tag, in the
+    # local clone already on disk? See DeployFreshness's own comment for
+    # why the nearest match wins when more than one ref qualifies — that
+    # includes a tag beating every branch once it's been deployed, since
+    # branches keep moving and a tag never does. No branch_shas.empty?
+    # early return here on purpose: a project with a tag-triggered deploy
+    # and nothing else CI-tracked yet should still get compared against
+    # that tag, not skipped.
     def deploy_freshness_details(path, project, deployed_sha)
       branch_shas = @store.entries_for(project: project, kind: "ci")
                           .filter_map { |observation| [observation.branch, observation.version] if observation.version }
                           .to_h
-      return {} if branch_shas.empty?
 
       result = DeployFreshness.new(path).compare(deployed_sha, branch_shas)
       return {} unless result
 
-      { fresh_branch: result.branch, behind: result.behind }
+      { fresh_ref: result.ref, behind: result.behind }
     end
 
     def record_deploy_observation(project, destination, state:, version: nil, details: {})
