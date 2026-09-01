@@ -282,5 +282,8 @@ same as it's been used throughout this project so far.
 
 ## License
 
-Not yet decided — see [LICENSE](LICENSE). Free to use today; whether it
-ends up open source is still an open question.
+[PolyForm Noncommercial 1.0.0](LICENSE) — free to use, modify, and
+redistribute for noncommercial purposes, source visible the same as any
+other Omarchy plugin. Not OSI open source: commercial use, including
+selling a derivative (for Omarchy or ported to any other platform), needs
+the licensor's permission.

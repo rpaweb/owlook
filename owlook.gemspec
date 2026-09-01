@@ -12,7 +12,11 @@ Gem::Specification.new do |spec|
     destinations, and background job queues for your Rails projects, and
     surfaces their status as a bar widget in Omarchy (Quattro).
   DESC
-  # No spec.license yet — not decided, see LICENSE at the repo root.
+  # Source-available, not OSI open source: free to use, modify, and
+  # redistribute for noncommercial purposes; commercial use (including
+  # selling a derivative, on any OS) needs the licensor's permission. See
+  # LICENSE at the repo root for the full text.
+  spec.license = "PolyForm-Noncommercial-1.0.0"
   spec.required_ruby_version = ">= 3.2"
   spec.homepage = "https://github.com/rpaweb/owlook"
   spec.metadata["source_code_uri"] = spec.homepage

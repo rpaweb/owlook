@@ -68,4 +68,6 @@ bundle exec bundler-audit check    # dependency vulnerabilities
 
 ## License
 
-Owlook's license hasn't been decided yet — see [LICENSE](LICENSE).
+Owlook is released under [PolyForm Noncommercial 1.0.0](LICENSE). By
+contributing, you agree to license your contributions under the same
+terms.
