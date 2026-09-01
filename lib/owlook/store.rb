@@ -36,6 +36,15 @@ module Owlook
       @entries[key]
     end
 
+    # Every stored observation of one kind for one project — the query
+    # #current can't answer, since that needs an exact key up front and
+    # this needs "every branch CI has a result for right now" without
+    # knowing in advance what those branches are (see
+    # Collector#deploy_freshness_details, the one caller).
+    def entries_for(project:, kind:)
+      @entries.select { |key, _observation| key[0] == project && key[1] == kind }.values
+    end
+
     # Removes every stored observation of the given kind. Normal polling
     # only ever adds or replaces, never deletes — this exists for the one
     # case where an entire kind needs to start over: the widget's "all

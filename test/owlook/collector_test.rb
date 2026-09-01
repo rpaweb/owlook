@@ -1079,6 +1079,49 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # End to end, not a DeployFreshness-in-isolation test (that lives in
+  # deploy_freshness_test.rb) — a real CI observation and a real deploy
+  # observation, from the same collector's own Store, actually meeting
+  # in the middle: the deployed SHA is a real, older commit in this
+  # project's real git history, one commit behind what CI just verified
+  # for "main".
+  def test_poll_queues_once_records_how_far_a_deploy_is_behind_the_branch_ci_verified
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      older_sha = `git -C #{project_path} rev-parse HEAD`.strip
+      Dir.chdir(project_path) do
+        File.write("second.txt", "hi")
+        system("git", "add", "second.txt")
+        system("git", "commit", "-q", "-m", "second commit")
+      end
+      newer_sha = `git -C #{project_path} rev-parse HEAD`.strip
+
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          %w[acme widgets main] => { head_sha: newer_sha, status: "completed", conclusion: "success",
+                                     updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        )
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(state_path),
+          github_source: github_source,
+          kamal_source: FakeKamalSource.new(project_path => ["production"]),
+          queue_source: FakeQueueSource.new(["production"] => { ready: 0, failed: 0 }),
+          deploy_source: FakeDeploySource.new(["production"] => older_sha)
+        )
+
+        collector.poll_ci_once
+        collector.poll_queues_once
+
+        deploy_row = JSON.parse(File.read(state_path)).find { |e| e["kind"] == "deploy" }
+
+        assert_equal "main", deploy_row["details"]["fresh_branch"]
+        assert_equal 1, deploy_row["details"]["behind"]
+      end
+    end
+  end
+
   # config.yml is read once per poll, not once at construction — so adding a
   # project to it takes effect on the next cycle (well within 30s), not only
   # after a systemctl restart. No file-watching needed: the collector is

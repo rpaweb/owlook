@@ -76,6 +76,25 @@ class Owlook::StoreTest < Minitest::Test
     assert store.known?(observation.key)
   end
 
+  def test_entries_for_returns_every_observation_of_one_kind_for_one_project
+    store = Owlook::Store.new
+    store.record(ci_observation(project: "acme/widgets", branch: "main", timestamp: Time.at(100)))
+    store.record(ci_observation(project: "acme/widgets", branch: "staging", timestamp: Time.at(100)))
+    store.record(ci_observation(project: "other/app", branch: "main", timestamp: Time.at(100)))
+    store.record(deploy_observation(project: "acme/widgets", destination: "production", timestamp: Time.at(100)))
+
+    entries = store.entries_for(project: "acme/widgets", kind: "ci")
+
+    assert_equal %w[main staging], entries.map(&:branch).sort
+  end
+
+  def test_entries_for_returns_an_empty_array_when_nothing_matches
+    store = Owlook::Store.new
+    store.record(ci_observation(project: "acme/widgets", branch: "main", timestamp: Time.at(100)))
+
+    assert_empty store.entries_for(project: "acme/widgets", kind: "deploy")
+  end
+
   def test_forget_kind_removes_only_observations_of_that_kind
     store = Owlook::Store.new
     store.record(ci_observation(branch: "main", timestamp: Time.at(100)))

@@ -9,15 +9,18 @@ module Owlook
   # sleeping.
   #
   # Two cadences, not one: GitHub Actions is a free API call, safe every 30s.
-  # A queue check is a real SSH round-trip (kamal app exec), so it runs on
-  # its own, slower interval — #run takes both separately.
+  # A queue or deploy check is a real SSH round-trip (kamal app exec /
+  # kamal app version), so both run on their own, slower interval — #run
+  # takes both separately.
   #
   # GitHub Actions produces "ci" observations, identified by project +
-  # branch (see Observation#key) — never a "deploy" observation, since
-  # nothing in v1 reports a real Kamal destination (hooks/SSH are out of
-  # scope). Queue checks produce "queue" observations, identified by project
-  # + destination — a queue backlog belongs to a deployed environment, not a
-  # branch, so it needs Sources::Kamal to know which destinations exist.
+  # branch (see Observation#key). Queue and deploy checks both produce
+  # observations identified by project + destination — a queue backlog or
+  # a running version belongs to a deployed environment, not a branch —
+  # so both need Sources::Kamal to know which destinations exist. A
+  # deploy observation's own freshness (is it caught up with a branch CI
+  # already verified?) is computed locally via git, not reported by
+  # Kamal itself — see DeployFreshness.
   class Collector
     # A broad-mode ("all branches") poll's branch count comes straight from
     # GitHub — nothing here controls it. A repo with hundreds of open
@@ -601,10 +604,28 @@ module Owlook
       sha = @deploy_source.version(project_path: path, destination: destination)
       log("#{project}@#{destination} deploy: #{sha}")
 
-      record_deploy_observation(project, destination, state: "ok", version: sha)
+      record_deploy_observation(project, destination, state: "ok", version: sha,
+                                                      details: deploy_freshness_details(path, project, sha))
     rescue Sources::Deploy::CommandFailedError, Sources::Deploy::NoVersionFoundError => e
       log("#{project}@#{destination} deploy check failed: #{e.message}")
       record_deploy_observation(project, destination, state: "unreachable", details: { error: e.message[0, 300] })
+    end
+
+    # Not which branch a destination "belongs to" (Kamal has no notion of
+    # that) — is the SHA just deployed a real ancestor of any branch CI
+    # currently has a result for, in the local clone already on disk? See
+    # DeployFreshness's own comment for why the nearest match wins when
+    # more than one branch qualifies.
+    def deploy_freshness_details(path, project, deployed_sha)
+      branch_shas = @store.entries_for(project: project, kind: "ci")
+                          .filter_map { |observation| [observation.branch, observation.version] if observation.version }
+                          .to_h
+      return {} if branch_shas.empty?
+
+      result = DeployFreshness.new(path).compare(deployed_sha, branch_shas)
+      return {} unless result
+
+      { fresh_branch: result.branch, behind: result.behind }
     end
 
     def record_deploy_observation(project, destination, state:, version: nil, details: {})
