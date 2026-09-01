@@ -176,7 +176,7 @@ change takes effect on the next cycle, no `systemctl restart` needed.
 
 ```bash
 bundle install
-bin/owlook-install-systemd-unit   # renders systemd/owlook.service.erb, installs it, does NOT enable it
+bin/owlook-install-service        # renders systemd/owlook.service.erb, installs it, does NOT enable it
 systemctl --user daemon-reload
 systemctl --user enable --now owlook
 systemctl --user status owlook    # confirm it's active; journal shows one log line per project per poll

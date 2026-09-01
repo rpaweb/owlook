@@ -133,5 +133,5 @@ jobs:
         run: |
           test -x /tmp/owlook-smoke/bin/owlook-collector
           test -x /tmp/owlook-smoke/bin/owlook-github-status
-          test -x /tmp/owlook-smoke/bin/owlook-install-systemd-unit
+          test -x /tmp/owlook-smoke/bin/owlook-install-service
           echo "✓ all three executables present"
