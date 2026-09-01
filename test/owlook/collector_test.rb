@@ -13,6 +13,7 @@ class Owlook::CollectorTest < Minitest::Test
                                                %w[acme widgets main] => {
                                                  head_sha: "abc123", status: "completed", conclusion: "success",
                                                  updated_at: "2026-08-26T12:00:00Z", actor: "rafael",
+                                                 name: "07. Checks",
                                                  jobs: [
                                                    { name: "test", status: "completed", conclusion: "success",
                                                      steps: [] },
@@ -48,7 +49,8 @@ class Owlook::CollectorTest < Minitest::Test
         assert_equal "github", entry["source"]
         # skipped jobs don't count against the total the way a failure
         # would — GitHub's own UI treats a run with only skips as green too.
-        assert_equal({ "jobs_total" => 3, "jobs_passed" => 2, "jobs_skipped" => 1 }, entry["details"])
+        assert_equal({ "jobs_total" => 3, "jobs_passed" => 2, "jobs_skipped" => 1, "workflow_name" => "07. Checks" },
+                     entry["details"])
 
         # A project-level "ci_timing" row rides along too — how long this
         # cycle actually took (see Collector#record_timing).

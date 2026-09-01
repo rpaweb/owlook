@@ -617,6 +617,7 @@ Panel {
 
     readonly property bool bad: Model.isBad(ciRow.modelData.state)
     readonly property string verdictKind: Model.ciVerdictIcon(ciRow.modelData.state) || ""
+    readonly property string workflowLabel: Model.ciWorkflowLabel(ciRow.modelData)
 
     width: ListView.view ? ListView.view.width : 0
     implicitHeight: Math.max(ciPill.height, ciText.implicitHeight)
@@ -685,7 +686,11 @@ Panel {
       Text {
         id: ciText
         textFormat: Text.StyledText
+        // branch · N/N jobs stays exactly where it was — the workflow name
+        // rides after it, not between, so the pass/fail summary is still
+        // the first thing next to the branch.
         text: "<b>" + ciRow.modelData.branch + "</b>  ·  " + Model.ciSummary(ciRow.modelData)
+          + (ciRow.workflowLabel !== "" ? "  ·  " + ciRow.workflowLabel : "")
         color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
         font.family: Style.font.family
         font.pixelSize: Style.font.caption

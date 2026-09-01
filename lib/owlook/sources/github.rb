@@ -38,6 +38,12 @@ module Owlook
           html_url: run.fetch("html_url"),
           updated_at: run.fetch("updated_at"),
           actor: run.dig("triggering_actor", "login") || run.dig("actor", "login"),
+          # The workflow's own display `name:` (e.g. "07. Checks") — a repo
+          # with more than one workflow triggering on the same branch can
+          # have this endpoint's "latest run" flip between them from one
+          # poll to the next, and without this the row never says which
+          # one it's actually showing.
+          name: run["name"],
           jobs: jobs.map { |job| parse_job(job) }
         }
       end

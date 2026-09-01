@@ -7,6 +7,7 @@ class Owlook::Sources::GitHubTest < Minitest::Test
     "workflow_runs" => [
       {
         "id" => 32_993_198_471,
+        "name" => "07. Checks",
         "status" => "completed",
         "conclusion" => "success",
         "head_branch" => "quattro",
@@ -51,6 +52,7 @@ class Owlook::Sources::GitHubTest < Minitest::Test
     assert_equal "https://github.com/acme/widgets/actions/runs/32993198471", run[:html_url]
     assert_equal "2026-08-26T17:19:54Z", run[:updated_at]
     assert_equal "rafael", run[:actor]
+    assert_equal "07. Checks", run[:name]
 
     assert_equal 1, run[:jobs].size
     job = run[:jobs].first

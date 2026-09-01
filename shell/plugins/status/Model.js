@@ -151,6 +151,17 @@ function ciSummary(entry) {
   return text
 }
 
+// The workflow's own display name (e.g. "07. Checks") — GitHub's "latest
+// run for this branch" endpoint doesn't care which workflow produced that
+// run, so a repo with more than one workflow triggering on the same
+// branch can have this flip between them from one poll to the next.
+// "" for a row that predates this being recorded (falsy, same as
+// ciSummary's own missing-data fallback).
+function ciWorkflowLabel(entry) {
+  var details = entry.details || {}
+  return details.workflow_name || ""
+}
+
 // Fixed-width pill label for a CI row, max 4 chars so every pill in the
 // section — pass or fail, running or queued — renders at the same width
 // instead of the box growing/shrinking per row.
@@ -461,6 +472,7 @@ if (typeof module !== "undefined") {
     queueShortText: queueShortText,
     queueErrorDetail: queueErrorDetail,
     ciSummary: ciSummary,
+    ciWorkflowLabel: ciWorkflowLabel,
     ciBadgeLabel: ciBadgeLabel,
     ciVerdictIcon: ciVerdictIcon,
     trackedLabel: trackedLabel,

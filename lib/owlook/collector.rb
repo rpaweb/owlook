@@ -331,7 +331,8 @@ module Owlook
 
       log("#{project}@#{branch}: #{run[:conclusion] || run[:status]}")
       record_ci_observation(project, branch, state: run[:conclusion] || run[:status],
-                                             version: run[:head_sha], details: job_counts(run[:jobs]),
+                                             version: run[:head_sha],
+                                             details: job_counts(run[:jobs]).merge(workflow_name: run[:name]),
                                              timestamp: Time.parse(run[:updated_at]), author: run[:actor])
     end
 
