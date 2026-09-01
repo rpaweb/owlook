@@ -47,7 +47,7 @@ module Owlook
     # language, no shared source of truth across the process boundary.
     # rubocop:disable Lint/ConstantDefinitionInBlock -- attaching a constant
     # to a Struct's own block is the point here, not an accident of scope.
-    BAD_STATES = %w[failure timed_out action_required cancelled failing unreachable].freeze
+    BAD_STATES = %w[failure timed_out action_required cancelled startup_failure failing unreachable].freeze
     # rubocop:enable Lint/ConstantDefinitionInBlock
 
     def self.bad_state?(state)

@@ -2,8 +2,17 @@
 // No QML dependencies here so this can be unit tested with plain node/mjs
 // the same way Omarchy's own first-party widgets test their Model.js files.
 
+// GitHub's real conclusion values (confirmed against the Checks/Actions
+// API docs, not guessed) — startup_failure specifically caught live: a
+// workflow that can't even start (a bad workflow file, most often)
+// landed here as neither pass nor fail, showing "?" with no color and
+// no verdict icon, and never counted as bad for a desktop notification
+// either (see Observation::BAD_STATES, kept in sync by hand with this).
+// neutral/skipped/stale are real values too, deliberately left out of
+// this set — none of them mean the code is broken.
 var BAD_STATES = {
   failure: true, timed_out: true, action_required: true, cancelled: true,
+  startup_failure: true,
   failing: true, unreachable: true
 }
 
@@ -91,6 +100,10 @@ function stateLabel(state) {
     case "cancelled": return "cancelled"
     case "timed_out": return "timed out"
     case "action_required": return "action required"
+    case "startup_failure": return "startup failure"
+    case "neutral": return "neutral"
+    case "skipped": return "skipped"
+    case "stale": return "stale"
     case "in_progress": return "running"
     case "queued": return "queued"
     case "waiting": return "waiting"
@@ -144,6 +157,10 @@ function ciBadgeLabel(state) {
     case "cancelled": return "CANC"
     case "timed_out": return "TIME"
     case "action_required": return "ACT"
+    case "startup_failure": return "STRT"
+    case "neutral": return "NTRL"
+    case "skipped": return "SKIP"
+    case "stale": return "STAL"
     case "in_progress": return "RUN"
     case "queued": return "QUE"
     case "no_runs": return "NONE"
@@ -165,6 +182,7 @@ function ciVerdictIcon(state) {
     case "cancelled":
     case "timed_out":
     case "action_required":
+    case "startup_failure":
       return "x"
     default: return null
   }

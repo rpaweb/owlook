@@ -64,13 +64,19 @@ class Owlook::ObservationTest < Minitest::Test
   end
 
   def test_bad_state_is_true_for_every_known_bad_state
-    %w[failure timed_out action_required cancelled failing unreachable].each do |state|
+    %w[failure timed_out action_required cancelled startup_failure failing unreachable].each do |state|
       assert Owlook::Observation.bad_state?(state), "expected #{state.inspect} to be bad"
     end
   end
 
+  # startup_failure is a real GitHub Actions conclusion (a workflow that
+  # can't even start, most often a bad workflow file) caught live: it
+  # fell through as neither good nor bad, so a transition into it never
+  # fired a desktop notification. neutral/skipped/stale are real
+  # conclusion values too, deliberately not bad — none of them mean the
+  # code is broken.
   def test_bad_state_is_false_for_a_good_or_neutral_state
-    %w[success ok in_progress queued no_runs checking].each do |state|
+    %w[success ok in_progress queued no_runs checking neutral skipped stale].each do |state|
       refute Owlook::Observation.bad_state?(state), "expected #{state.inspect} not to be bad"
     end
   end
