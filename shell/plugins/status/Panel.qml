@@ -863,11 +863,6 @@ Panel {
     readonly property string deployFreshness: destRow.deployEntry ? Model.deployFreshnessKind(destRow.deployEntry) : "unknown"
     readonly property bool deployBad: destRow.deployEntry ? Model.isBad(destRow.deployEntry.state) : false
     readonly property bool deployStale: destRow.deployFreshness === "stale"
-    // The row as a whole reads as bad/stalled if either half does — one
-    // card, one destination, not two independent severities competing
-    // for attention.
-    readonly property bool bad: destRow.queueBad || destRow.deployBad
-    readonly property bool stalled: destRow.queueStalled || destRow.deployStale
     readonly property bool checking: destRow.queueEntry !== null && destRow.queueEntry.state === "checking"
     readonly property var stats: Model.destStats(destRow.queueEntry)
 
@@ -879,23 +874,60 @@ Panel {
       width: parent.width
       height: destContent.implicitHeight + Style.space(18)
       radius: Style.cornerRadius
-      color: destRow.bad
-        ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.12)
-        : destRow.stalled
-          ? Qt.rgba(themeColors.warn.r, themeColors.warn.g, themeColors.warn.b, 0.12)
-          : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.05)
+      // Always the same neutral tint, not colored by bad/stalled — one
+      // card now holds two independent categories (DEPLOY, QUEUE), and
+      // painting the whole thing red for a queue failure that has
+      // nothing to do with the deploy above it read as noisy and made
+      // it unclear which half actually had a problem. The DEPLOY/QUEUE
+      // badges already carry every bit of that color; the card doesn't
+      // need to repeat it.
+      color: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.05)
 
-      Rectangle {
-        // Left accent bar — the same severity cue as the pill, at a glance
-        // even when the row is scrolled so its badge text is cut off.
-        width: Style.space(3)
+      // Left accent — a hand-drawn vector path (same PathArc technique as
+      // OpenIcon/VerdictIcon below), not an overlapping Rectangle. Three
+      // Rectangle-based attempts before this one all failed differently:
+      // `clip: true` doesn't respect radius in QtQuick (bounding-box only,
+      // confirmed), a per-corner radius on a bar this narrow gets clamped
+      // to almost nothing, and insetting the bar to dodge the curve just
+      // made it read as a disconnected floating line.
+      //
+      // Narrower than destBg's own corner radius, so this can't just
+      // trace the full quarter-circle the way a width-equals-radius
+      // version could — it has to stop partway around the same curve.
+      // yCut is where a straight cut at x=accentWidth actually crosses
+      // destBg's true r-radius corner circle (centered at (r,r) in this
+      // corner's local coordinates); starting/ending the arc there keeps
+      // it exactly on that circle instead of drawing its own, differently
+      // -curved one. Verified by rendering this exact shape offscreen
+      // before landing it here — no clip/mask, so nothing here depends on
+      // which rendering backend is active.
+      Shape {
+        id: accentShape
+        property real r: Style.cornerRadius
+        property real accentWidth: Style.space(4)
+        property real yCut: r - Math.sqrt(Math.max(0, r * r - (r - accentWidth) * (r - accentWidth)))
+        width: accentShape.accentWidth
         height: parent.height
-        radius: Style.cornerRadius
-        color: destRow.bad
-          ? root.urgent
-          : destRow.stalled
-            ? themeColors.warn
-            : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.3)
+        preferredRendererType: Shape.CurveRenderer
+
+        ShapePath {
+          fillColor: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.4)
+          strokeColor: "transparent"
+
+          startX: accentShape.accentWidth; startY: accentShape.yCut
+          PathArc {
+            x: 0; y: accentShape.r
+            radiusX: accentShape.r; radiusY: accentShape.r
+            direction: PathArc.Counterclockwise
+          }
+          PathLine { x: 0; y: destBg.height - accentShape.r }
+          PathArc {
+            x: accentShape.accentWidth; y: destBg.height - accentShape.yCut
+            radiusX: accentShape.r; radiusY: accentShape.r
+            direction: PathArc.Counterclockwise
+          }
+          PathLine { x: accentShape.accentWidth; y: accentShape.yCut }
+        }
       }
 
       Column {
