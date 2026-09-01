@@ -19,18 +19,31 @@ module Owlook
   # + destination — a queue backlog belongs to a deployed environment, not a
   # branch, so it needs Sources::Kamal to know which destinations exist.
   class Collector
+    # A broad-mode ("all branches") poll's branch count comes straight from
+    # GitHub — nothing here controls it. A repo with hundreds of open
+    # branches (dependabot/renovate churn, or just a project the size of
+    # rails/rails) would otherwise fire one request per branch, all at
+    # once, no cap — comfortably fine for the tens of branches this was
+    # built against, but a burst that size risks tripping GitHub's
+    # secondary/abuse rate limiting, a different mechanism than the
+    # 5000/hour primary limit (see #rate_limit). See work_concurrently.
+    MAX_CONCURRENT_REQUESTS = 20
+
     # config_loader is a callable (e.g. -> { Owlook::Config.load(path) }),
     # not a static Config — called fresh on every poll rather than once at
     # construction, so editing config.yml takes effect on the next cycle
     # (well within 30s) instead of needing a systemd restart.
     # sleeper is injectable (real default: Kernel#sleep) purely so
     # #wait_for_next_poll is testable without an actual test waiting out a
-    # real interval — see its own comment.
+    # real interval — see its own comment. max_concurrent_requests is
+    # injectable so a test can prove the cap holds without needing
+    # hundreds of real branches/threads to observe it.
     def initialize(config_loader:, store:, writer:, github_source:,
                    kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new,
                    workflows_source: Sources::Workflows.new,
                    settings_loader: -> { WidgetSettings.load },
                    notifier: Notifier.new,
+                   max_concurrent_requests: MAX_CONCURRENT_REQUESTS,
                    sleeper: ->(seconds) { sleep(seconds) }, logger: nil)
       @config_loader = config_loader
       @store = store
@@ -41,6 +54,7 @@ module Owlook
       @workflows_source = workflows_source
       @settings_loader = settings_loader
       @notifier = notifier
+      @max_concurrent_requests = max_concurrent_requests
       @sleeper = sleeper
       @logger = logger
       @known_all_branches = nil
@@ -197,25 +211,21 @@ module Owlook
     # half of the same underlying bug, confirmed live: a 28s detection gap
     # traced straight back to this).
     #
-    # No concurrency cap: for the branch counts a broad-mode poll
-    # realistically produces (tens, not hundreds), this comfortably sits
-    # under GitHub's rate limits. Revisit with a bounded pool if a
-    # project's branch count grows enough to change that trade-off — see
-    # the README's existing "GitHub rate limits" backlog note.
+    # Capped at MAX_CONCURRENT_REQUESTS (see work_concurrently) — a broad
+    # mode poll of a very large repo no longer bursts one request per
+    # branch regardless of how many there are.
     #
-    # Each thread's own error is caught and logged rather than left to
+    # Each item's own error is caught and logged rather than left to
     # crash the whole cycle — a burst of concurrent requests is more
     # likely to hit at least one transient failure than the same requests
     # spread out sequentially over 25 real seconds, so this isolation
     # matters more here than it did before.
     def poll_branches_concurrently(owner, name, project, branches)
-      branches.map do |branch|
-        Thread.new do
-          poll_branch_ci(owner, name, project, branch)
-        rescue StandardError => e
-          log("#{project}@#{branch}: poll failed, skipping this cycle (#{e.class}: #{e.message})")
-        end
-      end.each(&:join)
+      work_concurrently(branches) do |branch|
+        poll_branch_ci(owner, name, project, branch)
+      rescue StandardError => e
+        log("#{project}@#{branch}: poll failed, skipping this cycle (#{e.class}: #{e.message})")
+      end
     end
 
     def announce_new_ci_branches(project, branches)
@@ -384,15 +394,41 @@ module Owlook
     # is a real SSH round-trip per destination (Sources::Queue shells out
     # via a fresh Open3.capture3 every call, no shared connection object —
     # as safe to run concurrently as GithubClient's fresh Net::HTTP.start
-    # per call). No concurrency cap here either, same trade-off/backlog
-    # note as the CI side — a project's destination count is realistically
-    # small (production/staging/etc.), nowhere near where that would bite.
+    # per call). Uses the same MAX_CONCURRENT_REQUESTS cap for consistency,
+    # even though a project's destination count is realistically small
+    # (production/staging/etc.) and nowhere near where this would bite the
+    # way an unbounded broad-mode branch poll could.
     def poll_destinations_concurrently(path, project, destinations)
-      destinations.map do |destination|
+      work_concurrently(destinations) do |destination|
+        poll_destination_queue(path, project, destination)
+      rescue StandardError => e
+        log("#{project}@#{destination}: queue poll failed, skipping this cycle (#{e.class}: #{e.message})")
+      end
+    end
+
+    # A fixed-size worker pool draining a shared Queue, not "spawn N
+    # threads, join them" in batches of max_concurrent_requests — the
+    # difference matters once items.size exceeds the cap: batching would
+    # still start every batch fresh, so one slow item stalls an otherwise-
+    # idle worker until its whole batch finishes. A shared queue means a
+    # worker that finishes early immediately picks up the next item
+    # instead of waiting on its batch-mates. Each item's own error
+    # handling lives in the block the caller passes in (see
+    # poll_branches_concurrently/poll_destinations_concurrently) — this
+    # method doesn't rescue anything itself.
+    def work_concurrently(items)
+      return if items.empty?
+
+      queue = Queue.new
+      items.each { |item| queue << item }
+      worker_count = [items.size, @max_concurrent_requests].min
+      worker_count.times { queue << :done }
+
+      Array.new(worker_count) do
         Thread.new do
-          poll_destination_queue(path, project, destination)
-        rescue StandardError => e
-          log("#{project}@#{destination}: queue poll failed, skipping this cycle (#{e.class}: #{e.message})")
+          while (item = queue.pop) != :done
+            yield item
+          end
         end
       end.each(&:join)
     end

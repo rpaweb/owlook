@@ -335,6 +335,32 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # A project with far more destinations than max_concurrent_requests
+  # shouldn't fire them all at once — same reasoning as the CI-side cap
+  # test below, applied to the queue side for consistency (see
+  # poll_destinations_concurrently's own comment on why this side is
+  # lower-risk in practice, but capped the same way regardless).
+  def test_poll_queues_once_caps_concurrent_destination_polling
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      destinations = (1..10).map { |i| "dest-#{i}" }
+      probe = ConcurrencyProbe.new
+      collector = Owlook::Collector.new(
+        config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+        store: Owlook::Store.new,
+        writer: Owlook::StateWriter.new("/tmp/owlook-test-unused-state.json"),
+        github_source: FakeGithubSource.new({}),
+        kamal_source: FakeKamalSource.new(project_path => destinations),
+        queue_source: ProbingQueueSource.new(delay: 0.02, destinations: destinations, probe: probe),
+        max_concurrent_requests: 3
+      )
+
+      collector.poll_queues_once
+
+      assert_operator probe.max, :<=, 3, "expected at most 3 destinations in flight at once"
+      assert_operator probe.max, :>, 1, "expected real concurrency, not accidentally serialized"
+    end
+  end
+
   # A destination the store has never seen before gets an immediate
   # "checking" row, written before the (slow, SSH-based) real check even
   # starts — otherwise the very first thing a freshly-started collector
@@ -479,6 +505,33 @@ class Owlook::CollectorTest < Minitest::Test
 
         assert_equal branches.sort, ci_rows.map { |e| e["branch"] }.sort
       end
+    end
+  end
+
+  # The real motivation for MAX_CONCURRENT_REQUESTS: a repo with hundreds
+  # of branches (a broad-mode poll of something the size of rails/rails,
+  # say) shouldn't fire one request per branch all at once — that risks
+  # tripping GitHub's secondary/abuse rate limiting, a different
+  # mechanism than the 5000/hour primary limit. max_concurrent_requests
+  # is injected small here so the cap is observable without needing
+  # anywhere near that many real branches/threads in a test.
+  def test_poll_ci_once_caps_concurrent_branch_polling
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      branches = (1..10).map { |i| "branch-#{i}" }
+      probe = ConcurrencyProbe.new
+      collector = Owlook::Collector.new(
+        config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+        store: Owlook::Store.new,
+        writer: Owlook::StateWriter.new("/tmp/owlook-test-unused-state.json"),
+        github_source: ProbingGithubSource.new(delay: 0.02, branches: branches, probe: probe),
+        workflows_source: FakeWorkflowsSource.new(project_path => branches),
+        max_concurrent_requests: 3
+      )
+
+      collector.poll_ci_once
+
+      assert_operator probe.max, :<=, 3, "expected at most 3 branches in flight at once"
+      assert_operator probe.max, :>, 1, "expected real concurrency, not accidentally serialized"
     end
   end
 
@@ -1067,6 +1120,53 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # Tracks how many #track blocks are in flight at once. Proves both
+  # halves of a concurrency-cap claim at the same time: max stays at or
+  # under the configured limit (the cap holds) and max is still above 1
+  # (real concurrency is happening, not accidentally serialized down to
+  # one-at-a-time by a bug in the cap itself).
+  class ConcurrencyProbe
+    def initialize
+      @mutex = Mutex.new
+      @current = 0
+      @max = 0
+    end
+
+    def track
+      @mutex.synchronize do
+        @current += 1
+        @max = @current if @current > @max
+      end
+      yield
+    ensure
+      @mutex.synchronize { @current -= 1 }
+    end
+
+    attr_reader :max
+  end
+
+  # Same shape as SlowGithubSource, but reports concurrency-in-flight to a
+  # ConcurrencyProbe instead of just sleeping — needed to prove
+  # work_concurrently's cap actually holds, not just that polling is
+  # concurrent at all.
+  class ProbingGithubSource
+    def initialize(delay:, branches:, probe:)
+      @delay = delay
+      @branches = branches
+      @probe = probe
+    end
+
+    def latest_run(owner:, repo:, branch:)
+      @probe.track do
+        sleep(@delay)
+        next nil unless @branches.include?(branch)
+
+        { head_sha: "sha-#{branch}", status: "completed", conclusion: "success",
+          updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+      end
+    end
+  end
+
   class FakeKamalSource
     def initialize(routes)
       @routes = routes
@@ -1160,6 +1260,26 @@ class Owlook::CollectorTest < Minitest::Test
         unless @destinations.include?(destination)
 
       { ready: 0, failed: 0 }
+    end
+  end
+
+  # Same shape as SlowQueueSource, but reports concurrency-in-flight to a
+  # ConcurrencyProbe — see ProbingGithubSource's own comment, same reason.
+  class ProbingQueueSource
+    def initialize(delay:, destinations:, probe:)
+      @delay = delay
+      @destinations = destinations
+      @probe = probe
+    end
+
+    def status(project_path:, destination:)
+      @probe.track do
+        sleep(@delay)
+        raise Owlook::Sources::Queue::CommandFailedError.new(["kamal"], FakeQueueSource::FakeStatus.new(1), "not stubbed") \
+          unless @destinations.include?(destination)
+
+        { ready: 0, failed: 0 }
+      end
     end
   end
 end
