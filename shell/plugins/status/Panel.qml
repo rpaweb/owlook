@@ -153,10 +153,13 @@ Panel {
             foreground: root.barForeground
             fontFamily: Style.font.family
 
+            // Bigger than PanelHero's own default (Style.font.display,
+            // 24px) — this is the widget's logo, not a status glyph riding
+            // next to the title, and it read as an afterthought at 24.
             iconComponent: Component {
               OwlIcon {
-                implicitWidth: Style.font.display
-                implicitHeight: Style.font.display
+                implicitWidth: Style.font.display + 12
+                implicitHeight: Style.font.display + 12
               }
             }
 
