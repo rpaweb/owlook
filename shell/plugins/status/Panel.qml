@@ -398,45 +398,99 @@ Panel {
         }
       }
 
-      // Settings — opened via the gear icon in the hero, currently a
-      // single toggle. Swaps into the same fixed space tabs+body use
-      // rather than adding a new region, so the panel's outer size stays
-      // untouched by how many settings this grows to later. Plain Column,
-      // not scrollable yet: one row fits the body's height with room to
-      // spare — worth revisiting once a second or third setting lands.
-      Column {
+      // Settings — opened via the gear icon in the hero. Swaps into the
+      // same fixed space tabs+body use rather than adding a new region,
+      // so the panel's outer size stays untouched by how many settings
+      // this grows to later. Two fixed zones, not one flowing Column:
+      // toggles up top in their own scrollable area (room to grow past
+      // one without the whole panel reflowing), config access pinned to
+      // the bottom below a separator — a destination, not a setting,
+      // reads as a different kind of row and earns its own place.
+      Item {
         id: settingsView
         visible: root.showingSettings
         anchors.top: header.bottom
         anchors.topMargin: Style.space(10)
         anchors.left: parent.left
         anchors.right: parent.right
-        spacing: Style.space(10)
+        anchors.bottom: parent.bottom
 
-        PanelSectionHeader {
-          text: "SETTINGS"
-          foreground: root.barForeground
+        Item {
+          id: togglesZone
+          anchors.top: parent.top
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: settingsBottomSeparator.top
+          anchors.bottomMargin: Style.space(10)
+
+          PanelSectionHeader {
+            id: settingsHeader
+            text: "SETTINGS"
+            foreground: root.barForeground
+          }
+
+          // Flickable, not a plain Column — clips and scrolls once real
+          // content outgrows the space instead of pushing the config row
+          // below off the panel. One toggle today, but the room is
+          // already there for however many more land later.
+          Flickable {
+            id: togglesScroll
+            anchors.top: settingsHeader.bottom
+            anchors.topMargin: Style.space(10)
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            contentWidth: width
+            contentHeight: togglesColumn.implicitHeight
+
+            Column {
+              id: togglesColumn
+              width: parent.width
+              spacing: Style.space(10)
+
+              Toggle {
+                width: parent.width
+                label: "All branches"
+                description: "Track every branch with a recent CI run, dependabot included — not just the ones tied to an environment (master, staging, …)."
+                checked: root.setting("allBranches", false)
+                foreground: root.barForeground
+                accent: Color.accent
+                fontFamily: Style.font.family
+                onClicked: root.toggleAllBranchesSetting()
+              }
+            }
+
+            ScrollBar.vertical: ScrollBar {
+              policy: ScrollBar.AsNeeded
+              width: Style.space(3)
+            }
+          }
         }
 
-        Toggle {
-          width: parent.width
-          label: "All branches"
-          description: "Track every branch with a recent CI run, dependabot included — not just the ones tied to an environment (master, staging, …)."
-          checked: root.setting("allBranches", false)
-          foreground: root.barForeground
-          accent: Color.accent
-          fontFamily: Style.font.family
-          onClicked: root.toggleAllBranchesSetting()
+        Rectangle {
+          id: settingsBottomSeparator
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: configRow.top
+          anchors.bottomMargin: Style.space(6)
+          height: 1
+          color: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.15)
         }
 
         // Quick access to config.yml, not an in-panel form to add/remove
         // projects — omarchy-launch-editor already opens whatever editor
         // the user has configured (GUI or terminal, wrapped in a floating
         // terminal for the latter), so this is one exec call instead of
-        // reimplementing project management as a second UI.
+        // reimplementing project management as a second UI. Pinned to
+        // the bottom, below the separator — a destination you jump out
+        // to, not one more toggle in the scrollable list above.
         Item {
           id: configRow
-          width: parent.width
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
           height: Math.max(44, configRowContent.implicitHeight + Style.space(16))
 
           Rectangle {
@@ -447,30 +501,48 @@ Panel {
               : "transparent"
           }
 
-          Column {
+          // Same shape as the Toggle row above: label+description Column
+          // (width = whatever's left after the control) and the control
+          // itself, side by side in a Row, both centered on the row as a
+          // whole — not the switch, an OpenIcon standing in for it.
+          Row {
             id: configRowContent
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             anchors.leftMargin: Style.space(10)
             anchors.rightMargin: Style.space(10)
-            spacing: Style.space(2)
+            spacing: Style.space(10)
 
-            Text {
-              text: "Edit tracked projects"
-              color: root.barForeground
-              font.family: Style.font.family
-              font.pixelSize: Style.font.bodySmall
-              font.bold: true
+            Column {
+              width: parent.width - openIndicator.width - parent.spacing
+              spacing: Style.space(2)
+              anchors.verticalCenter: parent.verticalCenter
+
+              Text {
+                text: "Edit tracked projects"
+                color: root.barForeground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+              }
+
+              Text {
+                width: parent.width
+                text: "Opens config.yml in your default editor — add or remove repositories there."
+                color: Qt.darker(root.barForeground, 1.4)
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
+              }
             }
 
-            Text {
-              width: parent.width
-              text: "Opens config.yml in your default editor — add or remove repositories there."
-              color: Qt.darker(root.barForeground, 1.4)
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.Wrap
+            OpenIcon {
+              id: openIndicator
+              anchors.verticalCenter: parent.verticalCenter
+              implicitWidth: Style.space(20)
+              implicitHeight: Style.space(20)
+              strokeColor: Qt.darker(root.barForeground, 1.3)
             }
           }
 
@@ -683,6 +755,85 @@ Panel {
         capStyle: ShapePath.RoundCap
         startX: vIcon.width * (20 / 24); startY: vIcon.height * (4 / 24)
         PathLine { x: vIcon.width * (4 / 24); y: vIcon.height * (20 / 24) }
+      }
+    }
+  }
+
+  // The standard "opens something external" mark — an open box with an
+  // arrow escaping its top-right corner. Same stroke technique as
+  // VerdictIcon: straight PathLines only, no curves, fractions of a
+  // 24-unit box so it stays crisp at any size.
+  component OpenIcon: Item {
+    id: openIcon
+    property color strokeColor: Color.foreground
+
+    implicitWidth: Style.space(10)
+    implicitHeight: Style.space(10)
+
+    Shape {
+      anchors.fill: parent
+      preferredRendererType: Shape.CurveRenderer
+
+      // Closed rounded square — the arrow lives inside it, doesn't break
+      // the border (the earlier open-box design did, and read as messy).
+      // PathRoundedRect doesn't exist in this Qt (confirmed against the
+      // real installed qmltypes, not assumed) — four straight edges and
+      // four quarter-circle corners instead.
+      ShapePath {
+        strokeWidth: Style.space(1.6)
+        strokeColor: openIcon.strokeColor
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        joinStyle: ShapePath.RoundJoin
+
+        startX: openIcon.width * (8 / 24); startY: openIcon.height * (4.5 / 24)
+        PathLine { x: openIcon.width * (16 / 24); y: openIcon.height * (4.5 / 24) }
+        PathArc {
+          x: openIcon.width * (19.5 / 24); y: openIcon.height * (8 / 24)
+          radiusX: openIcon.width * (3.5 / 24); radiusY: openIcon.height * (3.5 / 24)
+          direction: PathArc.Clockwise
+        }
+        PathLine { x: openIcon.width * (19.5 / 24); y: openIcon.height * (16 / 24) }
+        PathArc {
+          x: openIcon.width * (16 / 24); y: openIcon.height * (19.5 / 24)
+          radiusX: openIcon.width * (3.5 / 24); radiusY: openIcon.height * (3.5 / 24)
+          direction: PathArc.Clockwise
+        }
+        PathLine { x: openIcon.width * (8 / 24); y: openIcon.height * (19.5 / 24) }
+        PathArc {
+          x: openIcon.width * (4.5 / 24); y: openIcon.height * (16 / 24)
+          radiusX: openIcon.width * (3.5 / 24); radiusY: openIcon.height * (3.5 / 24)
+          direction: PathArc.Clockwise
+        }
+        PathLine { x: openIcon.width * (4.5 / 24); y: openIcon.height * (8 / 24) }
+        PathArc {
+          x: openIcon.width * (8 / 24); y: openIcon.height * (4.5 / 24)
+          radiusX: openIcon.width * (3.5 / 24); radiusY: openIcon.height * (3.5 / 24)
+          direction: PathArc.Clockwise
+        }
+      }
+
+      // Arrow shaft, entirely inside the square.
+      ShapePath {
+        strokeWidth: Style.space(1.7)
+        strokeColor: openIcon.strokeColor
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        startX: openIcon.width * (9.5 / 24); startY: openIcon.height * (14.5 / 24)
+        PathLine { x: openIcon.width * (15 / 24); y: openIcon.height * (9 / 24) }
+      }
+
+      // Arrowhead — a corner bracket, not a filled triangle, matching
+      // the stroke-only style everywhere else in this panel.
+      ShapePath {
+        strokeWidth: Style.space(1.7)
+        strokeColor: openIcon.strokeColor
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        joinStyle: ShapePath.RoundJoin
+        startX: openIcon.width * (11 / 24); startY: openIcon.height * (8.7 / 24)
+        PathLine { x: openIcon.width * (15 / 24); y: openIcon.height * (9 / 24) }
+        PathLine { x: openIcon.width * (14.7 / 24); y: openIcon.height * (13 / 24) }
       }
     }
   }
