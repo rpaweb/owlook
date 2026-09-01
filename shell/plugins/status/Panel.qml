@@ -346,7 +346,7 @@ Panel {
           PanelSectionHeader {
             id: queuesHeader
             anchors.top: parent.top
-            text: "QUEUES — " + Model.trackedLabel(queuesSection.destCount)
+            text: "ENVIRONMENTS — " + Model.trackedLabel(queuesSection.destCount)
               + (queuesSection.loading ? "" : Model.timingSuffix(root.activeProject ? root.activeProject.queueTiming : null))
             foreground: root.barForeground
           }
@@ -840,13 +840,29 @@ Panel {
 
   // ---- destination (queue) row -----------------------------------------
 
+  // One card per environment (production, staging, …), two labeled
+  // mini-blocks inside it — DEPLOY (what's actually running, and how it
+  // compares to what CI verified) above QUEUE (Solid Queue health)
+  // below, split by a thin rule. Two blocks, not one section header
+  // repeating both words: the row itself already says which category
+  // each fact belongs to, so "Environments" up in queuesSection's own
+  // header doesn't have to.
   component DestRow: Item {
     id: destRow
     required property var modelData
 
     readonly property var queueEntry: destRow.modelData.queue
-    readonly property bool bad: destRow.queueEntry ? Model.isBad(destRow.queueEntry.state) : false
-    readonly property bool stalled: destRow.queueEntry ? Model.isStalled(destRow.queueEntry.state) : false
+    readonly property var deployEntry: destRow.modelData.deploy
+    readonly property bool queueBad: destRow.queueEntry ? Model.isBad(destRow.queueEntry.state) : false
+    readonly property bool queueStalled: destRow.queueEntry ? Model.isStalled(destRow.queueEntry.state) : false
+    readonly property string deployFreshness: destRow.deployEntry ? Model.deployFreshnessKind(destRow.deployEntry) : "unknown"
+    readonly property bool deployBad: destRow.deployEntry ? Model.isBad(destRow.deployEntry.state) : false
+    readonly property bool deployStale: destRow.deployFreshness === "stale"
+    // The row as a whole reads as bad/stalled if either half does — one
+    // card, one destination, not two independent severities competing
+    // for attention.
+    readonly property bool bad: destRow.queueBad || destRow.deployBad
+    readonly property bool stalled: destRow.queueStalled || destRow.deployStale
     readonly property bool checking: destRow.queueEntry !== null && destRow.queueEntry.state === "checking"
     readonly property var stats: Model.destStats(destRow.queueEntry)
 
@@ -884,47 +900,184 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
         anchors.leftMargin: Style.space(12)
         anchors.rightMargin: Style.space(9)
-        spacing: Style.space(6)
+        spacing: Style.space(7)
 
-        Item {
+        Text {
+          id: destName
           width: parent.width
-          height: Math.max(destName.implicitHeight, destBadge.height)
+          text: destRow.modelData.destination
+          color: root.barForeground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.bodySmall
+          font.bold: true
+          elide: Text.ElideRight
+        }
 
-          Text {
-            id: destName
+        // ---- DEPLOY ------------------------------------------------
+        Item {
+          id: deployBlock
+          width: parent.width
+          height: Math.max(deployLeft.implicitHeight, deployBadge.height) + Style.space(7)
+
+          Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.1)
+          }
+
+          Row {
+            id: deployLeft
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            text: destRow.modelData.destination
-            color: root.barForeground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.bodySmall
-            font.bold: true
+            spacing: Style.space(6)
+
+            Text {
+              text: "DEPLOY"
+              color: Qt.darker(root.barForeground, 1.6)
+              font.family: Style.font.family
+              font.pixelSize: Math.round(Style.font.caption * 0.8)
+              font.bold: true
+            }
+
+            Text {
+              visible: text !== ""
+              text: Model.deployShaLabel(destRow.deployEntry)
+              color: root.barForeground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
           }
 
           Rectangle {
-            id: destBadge
+            id: deployBadge
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             radius: Style.cornerRadius
-            width: destBadgeText.implicitWidth + Style.space(10)
-            height: destBadgeText.implicitHeight + Style.space(4)
-            color: destRow.bad
+            width: deployBadgeText.implicitWidth + Style.space(10)
+            height: deployBadgeText.implicitHeight + Style.space(4)
+            color: destRow.deployBad
               ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.2)
-              : destRow.stalled
+              : destRow.deployStale
+                ? Qt.rgba(themeColors.warn.r, themeColors.warn.g, themeColors.warn.b, 0.2)
+                : destRow.deployFreshness === "fresh"
+                  ? Qt.rgba(themeColors.success.r, themeColors.success.g, themeColors.success.b, 0.16)
+                  : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.1)
+
+            Text {
+              id: deployBadgeText
+              anchors.centerIn: parent
+              text: Model.deployBadgeLabel(destRow.deployEntry)
+              color: destRow.deployBad
+                ? root.urgent
+                : destRow.deployStale
+                  ? themeColors.warn
+                  : destRow.deployFreshness === "fresh"
+                    ? themeColors.success
+                    : Qt.darker(root.barForeground, destRow.deployEntry && destRow.deployEntry.state === "checking" ? 1.6 : 1.15)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.bold: !destRow.deployEntry || destRow.deployEntry.state !== "checking"
+              font.italic: destRow.deployEntry !== null && destRow.deployEntry.state === "checking"
+            }
+          }
+
+          MouseArea {
+            id: deployHover
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.NoButton
+            enabled: destRow.deployEntry !== null && destRow.deployEntry.state === "unreachable"
+          }
+
+          PanelToolTip {
+            visible: deployHover.enabled && deployHover.containsMouse
+            text: destRow.deployEntry ? Model.queueErrorDetail(destRow.deployEntry) : ""
+          }
+        }
+
+        // ---- QUEUE ---------------------------------------------------
+        Item {
+          width: parent.width
+          height: Math.max(queueLeft.implicitHeight, queueBadge.height)
+
+          Row {
+            id: queueLeft
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(10)
+
+            Text {
+              id: queueEyebrow
+              anchors.verticalCenter: parent.verticalCenter
+              text: "QUEUE"
+              color: Qt.darker(root.barForeground, 1.6)
+              font.family: Style.font.family
+              font.pixelSize: Math.round(Style.font.caption * 0.8)
+              font.bold: true
+            }
+
+            Row {
+              id: statsRow
+              visible: destRow.stats.length > 0
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(12)
+
+              Repeater {
+                model: destRow.stats
+
+                Row {
+                  id: statChip
+                  required property var modelData
+                  spacing: Style.space(3)
+
+                  Text {
+                    id: statValue
+                    text: statChip.modelData.n
+                    color: statChip.modelData.warn ? themeColors.warn : Qt.darker(root.barForeground, 1.1)
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                  }
+
+                  Text {
+                    text: statChip.modelData.l
+                    color: Qt.darker(root.barForeground, 1.4)
+                    font.family: Style.font.family
+                    font.pixelSize: Math.round(Style.font.caption * 0.9)
+                    anchors.baseline: statValue.baseline
+                  }
+                }
+              }
+            }
+          }
+
+          Rectangle {
+            id: queueBadge
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            radius: Style.cornerRadius
+            width: queueBadgeText.implicitWidth + Style.space(10)
+            height: queueBadgeText.implicitHeight + Style.space(4)
+            color: destRow.queueBad
+              ? Qt.rgba(root.urgent.r, root.urgent.g, root.urgent.b, 0.2)
+              : destRow.queueStalled
                 ? Qt.rgba(themeColors.warn.r, themeColors.warn.g, themeColors.warn.b, 0.2)
                 : Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.1)
 
             Text {
-              id: destBadgeText
+              id: queueBadgeText
               anchors.centerIn: parent
               text: Model.destBadgeLabel(destRow.queueEntry)
               // Not bold, italic instead — a provisional status message
               // ("checking…"), not a result, same visual language as the
               // "no CI runs found" / "no Kamal destinations configured"
               // messages elsewhere in this panel.
-              color: destRow.bad
+              color: destRow.queueBad
                 ? root.urgent
-                : destRow.stalled
+                : destRow.queueStalled
                   ? themeColors.warn
                   : Qt.darker(root.barForeground, destRow.checking ? 1.6 : 1.15)
               font.family: Style.font.family
@@ -933,53 +1086,20 @@ Panel {
               font.italic: destRow.checking
             }
           }
-        }
 
-        Row {
-          visible: destRow.stats.length > 0
-          width: parent.width
-          spacing: Style.space(12)
+          MouseArea {
+            id: destHover
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.NoButton
+            enabled: destRow.queueEntry !== null && destRow.queueEntry.state === "unreachable"
+          }
 
-          Repeater {
-            model: destRow.stats
-
-            Row {
-              id: statChip
-              required property var modelData
-              spacing: Style.space(3)
-
-              Text {
-                id: statValue
-                text: statChip.modelData.n
-                color: statChip.modelData.warn ? themeColors.warn : Qt.darker(root.barForeground, 1.1)
-                font.family: Style.font.family
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
-
-              Text {
-                text: statChip.modelData.l
-                color: Qt.darker(root.barForeground, 1.4)
-                font.family: Style.font.family
-                font.pixelSize: Math.round(Style.font.caption * 0.9)
-                anchors.baseline: statValue.baseline
-              }
-            }
+          PanelToolTip {
+            visible: destHover.enabled && destHover.containsMouse
+            text: destRow.queueEntry ? Model.queueErrorDetail(destRow.queueEntry) : ""
           }
         }
-      }
-
-      MouseArea {
-        id: destHover
-        anchors.fill: parent
-        hoverEnabled: true
-        acceptedButtons: Qt.NoButton
-        enabled: destRow.queueEntry !== null && destRow.queueEntry.state === "unreachable"
-      }
-
-      PanelToolTip {
-        visible: destHover.enabled && destHover.containsMouse
-        text: destRow.queueEntry ? Model.queueErrorDetail(destRow.queueEntry) : ""
       }
     }
   }

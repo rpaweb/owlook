@@ -360,7 +360,8 @@ function projectIsStalled(group) {
 // check happens to finish.
 function destinationsLoading(destinations) {
   return (destinations || []).some(function(dest) {
-    return !dest.queue || dest.queue.state === "checking"
+    return !dest.queue || dest.queue.state === "checking" ||
+      !dest.deploy || dest.deploy.state === "checking"
   })
 }
 
