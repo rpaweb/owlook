@@ -44,6 +44,7 @@ module Owlook
       @sleeper = sleeper
       @logger = logger
       @known_all_branches = nil
+      @known_projects = nil
       # Branches now poll concurrently (see poll_branches_concurrently) —
       # @store's own Hash isn't safe for unsynchronized concurrent
       # mutation, even across different keys.
@@ -52,7 +53,13 @@ module Owlook
 
     def poll_ci_once
       sync_all_branches_setting
-      projects.each { |path| poll_project_ci(path) }
+      # Read once, remember it — the same value wait_for_next_poll compares
+      # against on every tick, so an edit to config.yml made *during* a
+      # blocking poll (not just between polls) is still caught, the same
+      # class of race sync_all_branches_setting's own comment covers.
+      current_projects = projects
+      @known_projects = current_projects
+      current_projects.each { |path| poll_project_ci(path) }
     end
 
     # Logs how long a full cycle actually takes — the queue interval is an
@@ -105,6 +112,17 @@ module Owlook
         elapsed += step
         if @settings_loader.call.all_branches? != @known_all_branches
           log("all_branches change detected after #{elapsed}s wait, polling early")
+          return
+        end
+        # A project added (or removed) from config.yml gets the same
+        # early wake as a settings toggle — the new project's tab and its
+        # "checking" spinner (see announce_new_ci_branches) shouldn't sit
+        # behind up to ci_interval of nothing visibly happening. The
+        # regular CI/queue *data* refresh cadence is untouched by this —
+        # only noticing that the tracked project list itself changed
+        # jumps the queue.
+        if projects != @known_projects
+          log("project list changed after #{elapsed}s wait, polling early")
           return
         end
       end

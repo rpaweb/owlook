@@ -60,6 +60,22 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # The value wait_for_next_poll compares against on every tick to catch a
+  # config.yml edit early (see its own test) — has to be set from a real
+  # poll, not just read fresh at comparison time, for the same reason
+  # @known_all_branches is.
+  def test_poll_ci_once_remembers_the_project_list_it_just_read
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      collector = build_collector(
+        config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) }
+      )
+
+      collector.poll_ci_once
+
+      assert_equal [project_path], collector.instance_variable_get(:@known_projects)
+    end
+  end
+
   # A branch the store has never seen gets an immediate "checking" row,
   # written before the real GitHub calls even start — same reason
   # poll_queues_once announces a destination before its real check. GitHub
@@ -873,6 +889,10 @@ class Owlook::CollectorTest < Minitest::Test
     # baseline would have read it, so it looked unchanged for the rest of
     # that wait).
     collector.instance_variable_set(:@known_all_branches, false)
+    # Also primed to match build_collector's default config_loader ([]) —
+    # otherwise the project-list check (unprimed @known_projects is nil)
+    # would itself fire on the very first tick, for the wrong reason.
+    collector.instance_variable_set(:@known_projects, [])
 
     collector.send(:wait_for_next_poll, 30, tick: 10)
 
@@ -888,6 +908,7 @@ class Owlook::CollectorTest < Minitest::Test
       sleeper: ->(seconds) { sleeps << seconds }
     )
     collector.instance_variable_set(:@known_all_branches, false)
+    collector.instance_variable_set(:@known_projects, [])
 
     collector.send(:wait_for_next_poll, 25, tick: 10)
 
@@ -908,6 +929,53 @@ class Owlook::CollectorTest < Minitest::Test
       sleeper: ->(seconds) { sleeps << seconds }
     )
     collector.instance_variable_set(:@known_all_branches, false)
+
+    collector.send(:wait_for_next_poll, 30, tick: 10)
+
+    assert_equal [10], sleeps
+  end
+
+  # Same fast-path as the all_branches setting, for a different trigger —
+  # adding (or removing) a project in config.yml shouldn't sit behind up to
+  # ci_interval of nothing visibly happening before its tab and "checking"
+  # spinner show up (see announce_new_ci_branches).
+  def test_wait_for_next_poll_wakes_up_early_when_the_project_list_changes
+    project_lists = [["a"], %w[a b], %w[a b]] # unchanged, then "b" is added
+    call = -1
+    sleeps = []
+    collector = build_collector(
+      config_loader: lambda {
+        call += 1
+        Owlook::Config.new({ "projects" => project_lists[[call, project_lists.size - 1].min] })
+      },
+      settings_loader: -> { FakeSettings.new(all_branches: false) },
+      sleeper: ->(seconds) { sleeps << seconds }
+    )
+    collector.instance_variable_set(:@known_all_branches, false)
+    # Primed the way poll_ci_once would leave it after a real poll — see
+    # the all_branches test above for why this can't be a baseline re-read.
+    collector.instance_variable_set(:@known_projects, Owlook::Config.new({ "projects" => ["a"] }).projects)
+
+    collector.send(:wait_for_next_poll, 30, tick: 10)
+
+    # One 10s tick, not the full three — the second tick is where "b" got
+    # added, so it stops there.
+    assert_equal [10, 10], sleeps
+  end
+
+  def test_wait_for_next_poll_wakes_up_early_when_the_project_list_changed_while_it_wasnt_watching
+    # Same race as the all_branches version: the change already happened
+    # before this method was ever called (e.g. during a blocking queue
+    # poll), so @known_projects still holds the pre-change list and the
+    # very first tick catches it.
+    sleeps = []
+    collector = build_collector(
+      config_loader: -> { Owlook::Config.new({ "projects" => %w[a b] }) },
+      settings_loader: -> { FakeSettings.new(all_branches: false) },
+      sleeper: ->(seconds) { sleeps << seconds }
+    )
+    collector.instance_variable_set(:@known_all_branches, false)
+    collector.instance_variable_set(:@known_projects, Owlook::Config.new({ "projects" => ["a"] }).projects)
 
     collector.send(:wait_for_next_poll, 30, tick: 10)
 
