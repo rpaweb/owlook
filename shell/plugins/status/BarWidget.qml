@@ -66,6 +66,10 @@ BarWidget {
     onPressed: root.toggle()
   }
 
+  ThemeColors {
+    id: themeColors
+  }
+
   Item {
     id: iconHolder
     anchors.centerIn: button
@@ -120,7 +124,11 @@ BarWidget {
       anchors.bottom: owlIcon.bottom
       anchors.rightMargin: -width * 0.05
       anchors.bottomMargin: 0
-      color: bad ? Color.urgent : "#9ece6a"
+      // themeColors.success, not a hardcoded literal — this used to be
+      // "#9ece6a" outright, which is Tokyo Night's own green, not a real
+      // color choice; see ThemeColors.qml for where it actually comes
+      // from now.
+      color: bad ? Color.urgent : themeColors.success
       border.color: Color.popups.background
       border.width: 1
     }
