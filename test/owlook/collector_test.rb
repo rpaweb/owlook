@@ -1098,6 +1098,62 @@ class Owlook::CollectorTest < Minitest::Test
     assert_equal [10], sleeps
   end
 
+  # The gap wait_for_next_poll's own project-list fast-path didn't
+  # cover: CI notices a newly-added project quickly, but queues only ran
+  # on their own next_queue_check schedule regardless — confirmed live,
+  # a new project's QUEUES section sat on "checking" far longer than its
+  # CI section did.
+  def test_run_one_cycle_polls_queues_immediately_when_the_project_list_just_changed
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_a|
+      with_project(remote: "https://github.com/acme/gadgets.git", branch: "main") do |project_b|
+        Dir.mktmpdir do |state_dir|
+          state_path = File.join(state_dir, "state.json")
+          project_lists = [[project_a], [project_a, project_b]]
+          call = -1
+          collector = Owlook::Collector.new(
+            config_loader: lambda {
+              call += 1
+              Owlook::Config.new({ "projects" => project_lists[[call, project_lists.size - 1].min] })
+            },
+            store: Owlook::Store.new,
+            writer: Owlook::StateWriter.new(state_path),
+            github_source: FakeGithubSource.new({}),
+            kamal_source: FakeKamalSource.new(project_a => ["default"], project_b => ["default"]),
+            queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 })
+          )
+          far_future = Time.now + 3600
+          # Primed the way a real poll would leave it — @known_projects
+          # starts nil, so an unprimed first call would always look
+          # "changed" (nil != anything), which is correct for a real
+          # startup but not what cycle 1 below means to exercise.
+          collector.instance_variable_set(:@known_projects, Owlook::Config.new({ "projects" => [project_a] }).projects)
+
+          # Cycle 1: only project_a known yet, and nothing says queues are
+          # due — next_queue_check should carry through unchanged.
+          next_check = collector.send(:run_one_cycle, queue_interval: 60, next_queue_check: far_future)
+
+          assert_equal far_future, next_check
+          queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }
+
+          assert_empty queue_rows
+
+          # Cycle 2: config now includes project_b too. Even with
+          # next_queue_check still an hour out, the new project's queues
+          # get checked this cycle, not on the old schedule.
+          next_check = collector.send(:run_one_cycle, queue_interval: 60, next_queue_check: far_future)
+
+          # Queues actually ran this cycle (proven below by project_b's
+          # row existing) instead of carrying the stale far-future value
+          # through untouched, the way cycle 1 did.
+          assert_operator next_check, :<, far_future
+          queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }
+
+          assert_includes queue_rows.map { |row| row["project"] }, "acme/gadgets"
+        end
+      end
+    end
+  end
+
   private
 
   def ci_branches(state_path)

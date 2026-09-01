@@ -90,16 +90,37 @@ module Owlook
     def run(ci_interval:, queue_interval:)
       next_queue_check = Time.now
       loop do
-        poll_ci_once
-        if Time.now >= next_queue_check
-          poll_queues_once
-          next_queue_check = Time.now + queue_interval
-        end
+        next_queue_check = run_one_cycle(queue_interval: queue_interval, next_queue_check: next_queue_check)
         wait_for_next_poll(ci_interval)
       end
     end
 
     private
+
+    # One iteration of #run's loop, pulled out so a test can call it
+    # directly instead of looping/sleeping forever — same reason
+    # poll_ci_once/poll_queues_once already are their own methods.
+    # Returns the next_queue_check a caller should carry into the
+    # following cycle.
+    #
+    # A project added to config.yml gets its CI checked promptly already
+    # (poll_ci_once tracks @known_projects — see wait_for_next_poll).
+    # Queues didn't share that: a project added right after a queue cycle
+    # finished could sit for up to a full queue_interval before its
+    # destinations got their first check — confirmed live, a newly-added
+    # project's QUEUES section stayed on "checking" far longer than its
+    # CI section did. Forcing an immediate check here closes that gap the
+    # same way.
+    def run_one_cycle(queue_interval:, next_queue_check:)
+      previously_known_projects = @known_projects
+      poll_ci_once
+      next_queue_check = Time.now if @known_projects != previously_known_projects
+      if Time.now >= next_queue_check
+        poll_queues_once
+        next_queue_check = Time.now + queue_interval
+      end
+      next_queue_check
+    end
 
     # Sleeps in short ticks instead of one flat call for the whole
     # interval, so flipping the widget's "all branches" toggle (written to
