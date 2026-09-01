@@ -725,9 +725,13 @@ Panel {
     readonly property bool bad: Model.isBad(ciRow.modelData.state)
     readonly property string verdictKind: Model.ciVerdictIcon(ciRow.modelData.state) || ""
     readonly property string workflowLabel: Model.ciWorkflowLabel(ciRow.modelData)
+    // A job count mid-run only reflects whichever jobs happen to have
+    // finished so far, not the eventual result — a spinner says "still
+    // going, wait for it" instead of a number that reads as final.
+    readonly property bool running: ciRow.modelData.state === "in_progress"
 
     width: ListView.view ? ListView.view.width : 0
-    implicitHeight: Math.max(ciPill.height, ciText.implicitHeight)
+    implicitHeight: Math.max(ciPill.height, ciTextRow.implicitHeight)
 
     // Fixed width so PASS/FAIL/RUN/… all line up — a pill that grows or
     // shrinks per row was the exact thing this was built to avoid.
@@ -784,23 +788,73 @@ Panel {
       anchors.leftMargin: Style.space(8)
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      height: ciText.implicitHeight
-      contentWidth: ciText.implicitWidth
+      height: ciTextRow.implicitHeight
+      contentWidth: ciTextRow.implicitWidth
       clip: true
       boundsBehavior: Flickable.StopAtBounds
       flickableDirection: Flickable.HorizontalFlick
 
-      Text {
-        id: ciText
-        textFormat: Text.StyledText
-        // branch · N/N jobs stays exactly where it was — the workflow name
-        // rides after it, not between, so the pass/fail summary is still
-        // the first thing next to the branch.
-        text: "<b>" + ciRow.modelData.branch + "</b>  ·  " + Model.ciSummary(ciRow.modelData)
-          + (ciRow.workflowLabel !== "" ? "  ·  " + ciRow.workflowLabel : "")
-        color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
-        font.family: Style.font.family
-        font.pixelSize: Style.font.caption
+      Row {
+        id: ciTextRow
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(4)
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.StyledText
+          text: "<b>" + ciRow.modelData.branch + "</b>"
+          color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          text: "·"
+          color: Qt.darker(root.barForeground, 1.15)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+
+        // A live spinner in place of the N/N job count while the run is
+        // still going — that count is only whatever's finished so far,
+        // not the eventual result (see CiRow's `running` comment).
+        LoadingSpinner {
+          visible: ciRow.running
+          anchors.verticalCenter: parent.verticalCenter
+          implicitWidth: Style.space(12)
+          implicitHeight: Style.space(12)
+          strokeWidth: Style.space(1.6)
+          foreground: Qt.darker(root.barForeground, 1.15)
+          running: ciRow.running
+        }
+
+        Text {
+          visible: !ciRow.running
+          anchors.verticalCenter: parent.verticalCenter
+          text: Model.ciSummary(ciRow.modelData)
+          color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+
+        Text {
+          visible: ciRow.workflowLabel !== ""
+          anchors.verticalCenter: parent.verticalCenter
+          text: "·"
+          color: Qt.darker(root.barForeground, 1.15)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+
+        Text {
+          visible: ciRow.workflowLabel !== ""
+          anchors.verticalCenter: parent.verticalCenter
+          text: ciRow.workflowLabel
+          color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
       }
 
       ScrollBar.horizontal: ScrollBar {
@@ -867,6 +921,24 @@ Panel {
         capStyle: ShapePath.RoundCap
         startX: vIcon.width * (20 / 24); startY: vIcon.height * (4 / 24)
         PathLine { x: vIcon.width * (4 / 24); y: vIcon.height * (20 / 24) }
+      }
+    }
+
+    // "in_progress" — a still-running check isn't pass or fail yet, so
+    // neither check nor x belongs here; a plain dash says "not resolved"
+    // without claiming either verdict.
+    Shape {
+      anchors.fill: parent
+      visible: vIcon.kind === "dash"
+      preferredRendererType: Shape.CurveRenderer
+
+      ShapePath {
+        strokeWidth: Style.space(1.6)
+        strokeColor: vIcon.strokeColor
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        startX: vIcon.width * (5 / 24); startY: vIcon.height * (12 / 24)
+        PathLine { x: vIcon.width * (19 / 24); y: vIcon.height * (12 / 24) }
       }
     }
   }

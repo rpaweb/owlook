@@ -185,11 +185,12 @@ function ciBadgeLabel(state) {
 }
 
 // "check" for a resolved pass, "x" for any resolved fail-ish verdict,
-// null for anything that isn't a verdict yet (still running, queued, no
-// runs, checking, unknown) — a checkmark or an X would claim a result
-// that doesn't exist for those. Drawn as vector shapes in the widget
-// (see the VerdictIcon component in Panel.qml), not a Unicode glyph —
-// ✓/✗ render inconsistently across fonts/fallback chains at pill size.
+// "dash" for a run still in progress (neither verdict exists yet), null
+// for anything else not yet a verdict (queued, no runs, checking,
+// unknown) — a checkmark or an X would claim a result that doesn't
+// exist for those. Drawn as vector shapes in the widget (see the
+// VerdictIcon component in Panel.qml), not a Unicode glyph — ✓/✗/— render
+// inconsistently across fonts/fallback chains at pill size.
 function ciVerdictIcon(state) {
   switch (String(state || "")) {
     case "success": return "check"
@@ -199,6 +200,7 @@ function ciVerdictIcon(state) {
     case "action_required":
     case "startup_failure":
       return "x"
+    case "in_progress": return "dash"
     default: return null
   }
 }
