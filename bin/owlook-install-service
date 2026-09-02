@@ -4,14 +4,23 @@
 # Renders systemd/owlook.service.erb with the real ruby interpreter path
 # (RbConfig.ruby — never a mise shim) and this checkout's absolute paths,
 # and installs it to ~/.config/systemd/user/owlook.service. Does not enable
-# or start it — that's a separate, explicit step:
+# or start it by default — that's a separate, explicit step:
 #
 #   systemctl --user daemon-reload
 #   systemctl --user enable --now owlook
+#
+# Pass --enable to run those two for you (still nothing hidden: printed as
+# they run, same commands either way). No gem can hook "run this the moment
+# `gem install` finishes" — RubyGems has no supported mechanism for that —
+# so this flag is what gets a from-scratch install down to two commands
+# instead of five: `gem install owlook && owlook-install-service --enable`.
 
 require "erb"
 require "rbconfig"
 require "fileutils"
+require "open3"
+
+enable = ARGV.include?("--enable")
 
 ruby_path = RbConfig.ruby
 collector_path = File.expand_path("owlook-collector", __dir__)
@@ -28,7 +37,26 @@ File.write(unit_path, rendered)
 puts "Wrote #{unit_path}"
 puts
 puts rendered
+
+unless enable
+  puts
+  puts "Not enabled yet. To start it:"
+  puts "  systemctl --user daemon-reload"
+  puts "  systemctl --user enable --now owlook"
+  exit
+end
+
+def run!(*command)
+  puts "+ #{command.join(' ')}"
+  _stdout, stderr, status = Open3.capture3(*command)
+  return if status.success?
+
+  warn stderr
+  abort "owlook-install-service: '#{command.join(' ')}' failed (exit #{status.exitstatus})"
+end
+
 puts
-puts "Not enabled yet. To start it:"
-puts "  systemctl --user daemon-reload"
-puts "  systemctl --user enable --now owlook"
+run!("systemctl", "--user", "daemon-reload")
+run!("systemctl", "--user", "enable", "--now", "owlook")
+puts
+puts "Enabled and started. Confirm with: systemctl --user status owlook"

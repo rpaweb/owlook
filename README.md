@@ -41,10 +41,21 @@ host besides GitHub.
 
 ```bash
 bundle install
-bin/owlook-install-service        # renders + installs the systemd unit, does NOT enable it
-systemctl --user daemon-reload
-systemctl --user enable --now owlook
-systemctl --user status owlook    # confirm it's active
+bin/owlook-install-service --enable   # renders the systemd unit, then enables + starts it
+systemctl --user status owlook        # confirm it's active
+```
+
+Drop `--enable` to only render `~/.config/systemd/user/owlook.service` —
+useful to review it first — then enable it yourself:
+`systemctl --user daemon-reload && systemctl --user enable --now owlook`.
+
+It's a normal systemd `--user` unit, so the usual commands apply — no
+owlook-specific tooling needed:
+
+```bash
+systemctl --user stop owlook              # pause it, keeps it enabled for next login
+systemctl --user disable --now owlook     # stop it and remove it from login startup
+systemctl --user enable --now owlook      # turn it back on after either
 ```
 
 Then the bar widget — not published anywhere yet, so install by hand:
