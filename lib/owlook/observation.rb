@@ -12,10 +12,12 @@ module Owlook
   #                     observation for the same destination, and checking
   #                     out a feature branch would silently stop reporting
   #                     production's status.
-  #   kind: "deploy"  - identified by project + destination. Nothing
-  #                     produces these yet (Kamal hooks/SSH reconciliation
-  #                     are out of v1 scope) — destination legitimately has
-  #                     no source, so it stays absent rather than lying.
+  #   kind: "deploy"  - identified by project + destination. Produced by
+  #                     Sources::Deploy (`kamal app version`). `details`
+  #                     carries the freshness comparison against CI-verified
+  #                     branch SHAs and the repo's own latest git tag (see
+  #                     DeployFreshness) — `fresh_ref`/`behind`, absent when
+  #                     no branch or tag matches.
   #   kind: "queue"   - identified by project + destination, same as
   #                     "deploy": a queue backlog belongs to a deployed
   #                     environment, not a branch. Produced by
@@ -30,9 +32,9 @@ module Owlook
   #                     both from "N check(s) passing" the same way it
   #                     excludes "no_runs"/"checking".
   #
-  # version carries the git SHA that will eventually unify a "ci" and a
-  # "deploy" row describing the same commit (nil for "queue", which has no
-  # version concept); timestamp is when the underlying event happened
+  # version carries the git SHA that unifies a "ci" and a "deploy" row
+  # describing the same commit (nil for "queue", which has no version
+  # concept); timestamp is when the underlying event happened
   # (resolves conflicts); observed_at is when this collector last confirmed
   # it (the basis for "how stale is this").
   Observation = Struct.new(
