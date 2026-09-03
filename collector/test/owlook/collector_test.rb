@@ -818,6 +818,79 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # branches_to_poll (and everything else in poll_project_ci outside the
+  # already-isolated per-branch loop, see poll_branches_concurrently) runs
+  # unguarded except for GitRepo::NoGithubRemoteError — a real GitHub 502
+  # raised from there took down the whole process mid-cycle, confirmed
+  # live, silently skipping every project after the one that hit it. This
+  # is the same "one item's failure doesn't cost the others" isolation
+  # poll_branches_concurrently already gives individual branches, one
+  # level up for whichever project's own poll blows up outright.
+  def test_poll_ci_once_skips_a_project_whose_own_poll_raises_but_still_polls_the_rest
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_a|
+      with_project(remote: "https://github.com/acme/gadgets.git", branch: "main") do |project_b|
+        Dir.mktmpdir do |state_dir|
+          state_path = File.join(state_dir, "state.json")
+          github_source = FakeGithubSource.new(
+            %w[acme gadgets main] => { head_sha: "bbb222", status: "completed", conclusion: "success",
+                                       updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+          )
+          workflows_source = RaisingWorkflowsSource.new(
+            project_a => RuntimeError.new("GitHub API request failed: 502"),
+            project_b => ["main"]
+          )
+          collector = Owlook::Collector.new(
+            config_loader: -> { Owlook::Config.new({ "projects" => [project_a, project_b] }) },
+            store: Owlook::Store.new,
+            writer: Owlook::StateWriter.new(state_path),
+            github_source: github_source,
+            workflows_source: workflows_source
+          )
+
+          collector.poll_ci_once
+
+          ci_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "ci" }
+
+          assert_equal ["acme/gadgets"], ci_rows.map { |e| e["project"] }.uniq,
+                       "acme/widgets' own poll blowing up shouldn't have stopped acme/gadgets from being polled"
+        end
+      end
+    end
+  end
+
+  # Same bug, same fix, one level over on the queues/deploy side —
+  # @kamal_source.destinations(path) in poll_project_queues is just as
+  # unguarded as branches_to_poll was.
+  def test_poll_queues_once_skips_a_project_whose_own_poll_raises_but_still_polls_the_rest
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_a|
+      with_project(remote: "https://github.com/acme/gadgets.git", branch: "main") do |project_b|
+        Dir.mktmpdir do |state_dir|
+          state_path = File.join(state_dir, "state.json")
+          kamal_source = RaisingKamalSource.new(
+            project_a => RuntimeError.new("kamal exec failed: connection reset"),
+            project_b => ["production"]
+          )
+          collector = Owlook::Collector.new(
+            config_loader: -> { Owlook::Config.new({ "projects" => [project_a, project_b] }) },
+            store: Owlook::Store.new,
+            writer: Owlook::StateWriter.new(state_path),
+            github_source: FakeGithubSource.new({}),
+            kamal_source: kamal_source,
+            queue_source: FakeQueueSource.new(["production"] => { ready: 0, failed: 0 }),
+            deploy_source: FakeDeploySource.new(["production"] => "abc123")
+          )
+
+          collector.poll_queues_once
+
+          queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }
+
+          assert_equal ["acme/gadgets"], queue_rows.map { |e| e["project"] }.uniq,
+                       "acme/widgets' own poll blowing up shouldn't have stopped acme/gadgets from being polled"
+        end
+      end
+    end
+  end
+
   def test_poll_ci_once_does_not_notify_on_the_first_ever_result
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       Dir.mktmpdir do |state_dir|
@@ -1420,6 +1493,21 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # Same idea as RaisingWorkflowsSource, for poll_project_queues' own
+  # unguarded call to Sources::Kamal#destinations.
+  class RaisingKamalSource
+    def initialize(routes)
+      @routes = routes
+    end
+
+    def destinations(project_path)
+      route = @routes.fetch(project_path, [])
+      raise route if route.is_a?(Exception)
+
+      route
+    end
+  end
+
   # Records every call instead of actually shelling out to
   # omarchy-notification-send — a Ruby test suite must never pop a real
   # desktop notification.
@@ -1446,6 +1534,23 @@ class Owlook::CollectorTest < Minitest::Test
 
     def branches(project_path)
       @routes.fetch(project_path, [])
+    end
+  end
+
+  # A route mapped to an Exception instance raises it instead of returning
+  # it — for proving one project's own poll blowing up outright (not a
+  # single branch's, see poll_branches_concurrently's own isolation)
+  # doesn't take the rest of the cycle down with it.
+  class RaisingWorkflowsSource
+    def initialize(routes)
+      @routes = routes
+    end
+
+    def branches(project_path)
+      route = @routes.fetch(project_path, [])
+      raise route if route.is_a?(Exception)
+
+      route
     end
   end
 

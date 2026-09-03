@@ -146,6 +146,15 @@ module Owlook
       write_snapshot
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping #{path}: #{e.message}")
+    rescue StandardError => e
+      # Everything else here — branches_to_poll, the pruning/announce
+      # calls above, anything not already isolated per-branch by
+      # poll_branches_concurrently — used to be able to take the whole
+      # process down mid-cycle: confirmed live, a transient GitHub 502
+      # here silently skipped every project after the one that hit it,
+      # not just that one. One project's own poll failing shouldn't cost
+      # the rest of the cycle any more than one branch's does.
+      log("#{path}: poll failed, skipping this cycle (#{e.class}: #{e.message})")
     end
 
     # GitHub Actions requests are I/O-bound — Ruby releases the GIL during
@@ -336,6 +345,13 @@ module Owlook
       write_snapshot
     rescue GitRepo::NoGithubRemoteError => e
       log("skipping queues for #{path}: #{e.message}")
+    rescue StandardError => e
+      # Same reasoning as poll_project_ci's own StandardError rescue —
+      # @kamal_source.destinations(path) above is just as unguarded as
+      # branches_to_poll was, and this is the same one-project's-failure-
+      # shouldn't-cost-the-rest isolation, one level up from
+      # poll_destinations_concurrently's per-destination version.
+      log("#{path}: queue poll failed, skipping this cycle (#{e.class}: #{e.message})")
     end
 
     # Same fix as poll_branches_concurrently, same reason: kamal app exec
