@@ -22,6 +22,17 @@ Installing/enabling a plugin runs arbitrary code inside your long-lived
 shell process — read it first, same as Omarchy's own warning for
 third-party plugins.
 
+### Uninstalling
+
+```bash
+omarchy plugin remove owlook.status
+```
+
+That's the whole removal — there's no systemd unit or gem to separately
+stop or uninstall (see [How it runs](#how-it-runs)): the collector only
+ever runs as a child of the widget itself, so removing the plugin takes
+it with it.
+
 ## What it tracks
 
 - **CI** — GitHub Actions status per branch, auto-detected from
