@@ -49,6 +49,13 @@ Panel {
     root.settings = entry
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
       root.bar.shell.updateEntryInline(root.moduleName, entry)
+
+    // Takes priority over whatever cycle happens to be running right now
+    // — see BarWidget.qml's restartCollectorCycleNow, which kills it
+    // rather than waiting, so the new mode shows up immediately instead
+    // of behind whatever's left of the current cycle plus another 30s.
+    if (root.barWidgetRoot && typeof root.barWidgetRoot.restartCollectorCycleNow === "function")
+      root.barWidgetRoot.restartCollectorCycleNow()
   }
 
   readonly property color urgent: bar ? bar.urgent : Color.urgent

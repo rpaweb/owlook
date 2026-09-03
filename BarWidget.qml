@@ -38,6 +38,10 @@ BarWidget {
   // than this interval — so `collectorProcess.running` is checked before
   // ever starting another one; a slow cycle just runs back-to-back with
   // the next, never two at once stepping on the same state file.
+  // Routine tick: soft. A cycle already running just keeps running — no
+  // reason to interrupt one on a schedule alone, and a genuinely slow
+  // broad-mode cycle needs the room to actually finish rather than being
+  // restarted every 30s forever.
   Timer {
     interval: 30000
     running: true
@@ -46,9 +50,42 @@ BarWidget {
     onTriggered: if (!collectorProcess.running) collectorProcess.running = true
   }
 
+  // A settings toggle (Panel.qml's toggleAllBranchesSetting) or a
+  // config.yml edit (configFile below) gets priority over whatever cycle
+  // happens to be running, unlike the routine tick above: SIGTERM it now
+  // instead of waiting for it to finish naturally, so the new setting
+  // shows up right away instead of behind up to a minute-plus of a
+  // broad-mode cycle across several real projects, on top of another 30s
+  // for the Timer's own next tick — confirmed live, that combination
+  // meant a toggle click could take nearly two minutes to show up.
+  //
+  // Killing only this one process would just move the problem: Ruby
+  // doesn't take its children down with it when signaled, and
+  // Sources::Queue/Deploy/GithubClient all shell out (kamal, ssh, gh) —
+  // confirmed live, killing only the collector process left a `kamal app
+  // exec` orphaned mid-SSH-call, still holding a connection open and
+  // contending with the next cycle's own (the real cause of a real
+  // "unreachable" flicker seen live during this same investigation). See
+  // bin/owlook-collector's own TERM trap, which takes its whole process
+  // group down with it — that's what makes SIGTERM here safe to use.
+  property bool collectorRestartRequested: false
+
+  function restartCollectorCycleNow() {
+    if (!collectorProcess.running) {
+      collectorProcess.running = true
+      return
+    }
+    collectorRestartRequested = true
+    collectorProcess.signal(15) // SIGTERM
+  }
+
   Process {
     id: collectorProcess
     command: ["ruby", root.collectorScript]
+    onExited: if (root.collectorRestartRequested) {
+      root.collectorRestartRequested = false
+      collectorProcess.running = true
+    }
 
     stdout: StdioCollector {
       onStreamFinished: if (text !== "") console.log("[owlook collector]", text)
@@ -56,6 +93,23 @@ BarWidget {
     stderr: StdioCollector {
       onStreamFinished: if (text !== "") console.log("[owlook collector]", text)
     }
+  }
+
+  // The collector's own default config path (see bin/owlook-collector's
+  // OWLOOK_CONFIG fallback) — same constant as Panel.qml's "Edit tracked
+  // projects" row, duplicated rather than threaded through injectPanel
+  // (see ThemeColors's own instance in Panel.qml for the established
+  // reason this codebase prefers that). Watched purely to react to an
+  // external edit (omarchy-launch-editor, or any other editor) — nothing
+  // here reads its contents, only the collector process does.
+  readonly property string configPath: (Quickshell.env("HOME") || "") + "/.config/owlook/config.yml"
+
+  FileView {
+    id: configFile
+    path: root.configPath
+    watchChanges: true
+    printErrors: false
+    onFileChanged: root.restartCollectorCycleNow()
   }
 
   function toggle() {

@@ -2,24 +2,49 @@
 # frozen_string_literal: true
 
 # One full poll cycle — CI, deploy, and queue checks for every configured
-# project — then exit. Invoked fresh every OWLOOK_POLL_INTERVAL seconds by
-# the widget's own Timer+Process (see BarWidget.qml), not a long-lived
-# daemon: no systemd unit, nothing to enable, the plugin owns the
-# schedule. Store.load rehydrates from the previous cycle's own state file
-# so a brand new process still knows what it already knew last time — see
-# Store.load's own comment for why that's not optional (without it, every
+# project — then exit. Invoked fresh every 30s by the widget's own
+# Timer+Process (see BarWidget.qml), not a long-lived daemon: no systemd
+# unit, nothing to enable, the plugin owns the schedule. Store.load
+# rehydrates from the previous cycle's own state file so a brand new
+# process still knows what it already knew last time — see Store.load's
+# own comment for why that's not optional (without it, every
 # branch/destination would flash back to "checking" every single cycle).
 #
 # CI and queues/deploy both run every cycle now, one cadence for
-# everything (30s by default) — no more separate, slower queue interval.
-# A long-lived process could afford to let queues lag behind on their own
-# timer; re-launched fresh each time, there's no in-memory state to carry
-# a second cadence across invocations anyway, so simpler wins.
+# everything — no more separate, slower queue interval. A long-lived
+# process could afford to let queues lag behind on their own timer;
+# re-launched fresh each time, there's no in-memory state to carry a
+# second cadence across invocations anyway, so simpler wins.
 
 require_relative "../lib/owlook"
 
 CONFIG_PATH = File.expand_path(ENV.fetch("OWLOOK_CONFIG", "~/.config/owlook/config.yml"))
 STATE_PATH = File.join(ENV.fetch("XDG_RUNTIME_DIR", "/tmp"), "owlook.json")
+
+# A settings toggle or a config.yml edit (see BarWidget.qml's
+# startCollectorCycle) kills a cycle already in progress instead of
+# waiting for it, so the new setting shows up right away instead of
+# behind whatever's left of a broad-mode cycle that can run well past a
+# minute. That only works safely if this process takes its own children
+# down with it: Sources::Queue/Deploy/GithubClient all shell out (kamal,
+# ssh, gh), and Ruby doesn't kill a child just because its parent was
+# signaled — confirmed live, killing only this process left a `kamal app
+# exec` orphaned mid-SSH-call, still holding a connection, contending
+# with the very next cycle's own. setpgrp makes this process (and
+# everything it goes on to spawn, which inherits the group) the leader of
+# its own process group, separate from the shell's; the TERM trap then
+# kills that whole group, not just this one PID.
+Process.setpgrp
+trap("TERM") do
+  # Reset to the OS default *before* re-signaling the group — the group
+  # includes this process itself, and leaving this same trap installed
+  # would re-enter it on its own self-sent TERM, which never actually
+  # exits (confirmed live: an early version of this spun at 100% CPU,
+  # signaling itself forever, instead of terminating).
+  trap("TERM", "DEFAULT")
+  Process.kill("TERM", -Process.pid)
+  exit(143) # 128 + SIGTERM(15) — conventional exit code for "killed by TERM"
+end
 
 def log(message)
   warn "[owlook] #{Time.now.iso8601} #{message}"
