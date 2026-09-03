@@ -148,24 +148,69 @@ class Owlook::StoreTest < Minitest::Test
     assert_empty store.entries_for(project: "acme/widgets", kind: "deploy")
   end
 
-  def test_forget_kind_removes_only_observations_of_that_kind
+  def test_forget_ci_branches_removes_only_branches_not_in_the_keep_list
     store = Owlook::Store.new
     store.record(ci_observation(branch: "main", timestamp: Time.at(100)))
-    store.record(ci_observation(branch: "staging", timestamp: Time.at(100)))
+    store.record(ci_observation(branch: "dependabot/bundler/rails-8.1", timestamp: Time.at(100)))
+
+    store.forget_ci_branches("acme/widgets", ["main"])
+
+    branches = store.snapshot.map { |e| e[:branch] }
+
+    assert_equal ["main"], branches
+  end
+
+  def test_forget_ci_branches_leaves_other_kinds_alone
+    store = Owlook::Store.new
+    store.record(ci_observation(branch: "main", timestamp: Time.at(100)))
     store.record(deploy_observation(destination: "production", timestamp: Time.at(100)))
 
-    store.forget_kind("ci")
+    store.forget_ci_branches("acme/widgets", [])
 
     kinds = store.snapshot.map { |e| e[:kind] }
 
     assert_equal ["deploy"], kinds
   end
 
-  def test_forget_kind_is_a_no_op_when_nothing_of_that_kind_exists
+  def test_forget_ci_branches_leaves_other_projects_alone
     store = Owlook::Store.new
-    store.record(deploy_observation(destination: "production", timestamp: Time.at(100)))
+    store.record(ci_observation(project: "acme/widgets", branch: "dependabot/bundler/rails-8.1", timestamp: Time.at(100)))
+    store.record(ci_observation(project: "acme/gadgets", branch: "dependabot/bundler/rails-8.1", timestamp: Time.at(100)))
 
-    store.forget_kind("ci")
+    store.forget_ci_branches("acme/widgets", [])
+
+    projects = store.snapshot.map { |e| e[:project] }
+
+    assert_equal ["acme/gadgets"], projects
+  end
+
+  def test_forget_ci_branches_is_a_no_op_when_every_branch_is_kept
+    store = Owlook::Store.new
+    store.record(ci_observation(branch: "main", timestamp: Time.at(100)))
+
+    store.forget_ci_branches("acme/widgets", ["main"])
+
+    assert_equal 1, store.snapshot.size
+  end
+
+  def test_forget_projects_except_removes_every_kind_for_a_dropped_project
+    store = Owlook::Store.new
+    store.record(ci_observation(project: "acme/widgets", branch: "main", timestamp: Time.at(100)))
+    store.record(deploy_observation(project: "acme/widgets", destination: "production", timestamp: Time.at(100)))
+    store.record(ci_observation(project: "acme/gadgets", branch: "main", timestamp: Time.at(100)))
+
+    store.forget_projects_except(["acme/gadgets"])
+
+    projects = store.snapshot.map { |e| e[:project] }
+
+    assert_equal ["acme/gadgets"], projects
+  end
+
+  def test_forget_projects_except_is_a_no_op_when_every_project_is_kept
+    store = Owlook::Store.new
+    store.record(ci_observation(project: "acme/widgets", branch: "main", timestamp: Time.at(100)))
+
+    store.forget_projects_except(["acme/widgets", "acme/gadgets"])
 
     assert_equal 1, store.snapshot.size
   end

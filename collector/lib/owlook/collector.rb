@@ -57,7 +57,6 @@ module Owlook
       @notifier = notifier
       @max_concurrent_requests = max_concurrent_requests
       @logger = logger
-      @known_all_branches = nil
       # Branches now poll concurrently (see poll_branches_concurrently) —
       # @store's own Hash isn't safe for unsynchronized concurrent
       # mutation, even across different keys.
@@ -65,8 +64,15 @@ module Owlook
     end
 
     def poll_ci_once
-      sync_all_branches_setting
-      projects.each { |path| poll_project_ci(path) }
+      current_projects = projects
+      # Same reasoning as forget_ci_branches, one level up: a project
+      # removed from config.yml should disappear entirely — CI, deploy,
+      # queues, timings, all of it — not linger under a tab the widget has
+      # no way to reach anymore. Only needs to run once per full cycle
+      # (poll_queues_once shares the same @store), so it lives here, ahead
+      # of both poll_project_ci and poll_project_queues.
+      @store.forget_projects_except(project_ids(current_projects))
+      current_projects.each { |path| poll_project_ci(path) }
     end
 
     # Logs how long a full cycle actually takes — the queue interval is an
@@ -82,28 +88,6 @@ module Owlook
 
     private
 
-    # When the widget's "all branches" toggle flips, every CI row across
-    # every project gets forgotten so the next poll re-announces from
-    # scratch under the new mode — the same "checking" -> spinner ->
-    # real-data sequence a first-ever poll goes through, because the
-    # visible branch set has genuinely changed underneath it, not just
-    # grown or shrunk unnoticed. Without this, switching "all branches"
-    # back off would leave every dependabot/renovate branch it discovered
-    # sitting in the state file forever — nothing else ever prunes a
-    # Store entry. @known_all_branches starts as nil (neither true nor
-    # false), so the very first call always "changes" too — harmless,
-    # since there's nothing in the Store yet to forget.
-    def sync_all_branches_setting
-      current = @settings_loader.call.all_branches?
-      return if current == @known_all_branches
-
-      unless @known_all_branches.nil?
-        log("all_branches setting changed #{@known_all_branches} -> #{current}, forgetting ci store")
-        @store.forget_kind("ci")
-      end
-      @known_all_branches = current
-    end
-
     # A config edit caught mid-write (or briefly invalid YAML) shouldn't
     # crash the loop — skip this one cycle's projects and try again next
     # time; the file is almost always valid by then.
@@ -114,6 +98,23 @@ module Owlook
       []
     end
 
+    # "owner/repo" for every currently configured project — the same
+    # identifier poll_project_ci computes and Observation#project stores,
+    # not the local checkout path config.yml actually lists. A path that
+    # can't resolve (no github remote) is skipped, not treated as absent —
+    # this only decides what to *keep*, and poll_project_ci already skips
+    # the same path with the same rescue, so there's nothing new to prune
+    # for it either way.
+    def project_ids(paths)
+      paths.filter_map do |path|
+        repo = GitRepo.new(path)
+        owner, name = repo.owner_and_repo
+        "#{owner}/#{name}"
+      rescue GitRepo::NoGithubRemoteError
+        nil
+      end
+    end
+
     def poll_project_ci(path)
       repo = GitRepo.new(path)
       owner, name = repo.owner_and_repo
@@ -121,6 +122,13 @@ module Owlook
       started = Time.now
 
       branches = branches_to_poll(path, repo, owner, name)
+      # Prune first, every cycle, unconditionally — a branch this cycle's
+      # own list doesn't include isn't relevant anymore, whether because
+      # "all branches" just flipped off or because the branch was simply
+      # merged/deleted upstream, and nothing else ever removes a stale
+      # Store entry (see Store#forget_ci_branches for why this can't be
+      # gated on detecting a settings change instead).
+      @store.forget_ci_branches(project, branches)
       # A branch the store has never seen gets an immediate "checking"
       # row, the same reason poll_project_queues announces a destination
       # before its real check — GitHub Actions is fast, but "fast" still

@@ -723,6 +723,101 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
+  # The test above reuses one Collector (and one in-memory Store) across
+  # all three polls — which is how bin/owlook-collector *used* to run, but
+  # not how it actually runs today (see BarWidget.qml's Timer+Process): a
+  # fresh process, a fresh Collector, and Store.load(state_path)
+  # rehydrating from disk, every single cycle. This reproduces that real
+  # shape specifically, since an earlier version of this same pruning
+  # logic (a Collector-level @known_all_branches transition check) passed
+  # the test above while being silently dead in exactly this scenario —
+  # every fresh process's first poll looked identical to a genuine
+  # settings change, so the guard meant to protect a real first-ever poll
+  # ended up suppressing every single cycle's prune instead.
+  def test_poll_ci_once_forgets_stale_branches_across_separate_collector_processes
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        state_path = File.join(state_dir, "state.json")
+        github_source = FakeGithubSource.new(
+          {
+            %w[acme widgets master] => { head_sha: "aaa111", status: "completed", conclusion: "success",
+                                         updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
+            ["acme", "widgets", "dependabot/bundler/rails-8.1"] => { head_sha: "ccc333", status: "completed",
+                                                                     conclusion: "success", updated_at: "2026-08-26T12:10:00Z", actor: "dependabot[bot]" }
+          },
+          { %w[acme widgets] => ["master", "dependabot/bundler/rails-8.1"] }
+        )
+        one_cycle = lambda { |all_branches|
+          Owlook::Collector.new(
+            config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+            store: Owlook::Store.load(state_path),
+            writer: Owlook::StateWriter.new(state_path),
+            github_source: github_source,
+            workflows_source: FakeWorkflowsSource.new(project_path => ["master"]),
+            settings_loader: -> { FakeSettings.new(all_branches: all_branches) }
+          ).poll_ci_once
+        }
+
+        one_cycle.call(false)
+
+        assert_equal ["master"], ci_branches(state_path)
+
+        one_cycle.call(true)
+
+        assert_equal ["dependabot/bundler/rails-8.1", "master"], ci_branches(state_path)
+
+        one_cycle.call(false)
+
+        assert_equal ["master"], ci_branches(state_path),
+                     "a fresh process per cycle must still forget the dependabot branch, " \
+                     "not just one that happens to keep the same Collector/Store around"
+      end
+    end
+  end
+
+  # Same class of bug as the branch-pruning tests above, one level up: a
+  # project removed from config.yml stops being polled, but nothing else
+  # ever removed what the Store already had for it — confirmed live (a
+  # real project deleted from config.yml kept showing its last-known tab
+  # indefinitely) before this existed.
+  def test_poll_ci_once_forgets_a_project_dropped_from_config_across_separate_collector_processes
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_a|
+      with_project(remote: "https://github.com/acme/gadgets.git", branch: "main") do |project_b|
+        Dir.mktmpdir do |state_dir|
+          state_path = File.join(state_dir, "state.json")
+          github_source = FakeGithubSource.new(
+            %w[acme widgets main] => { head_sha: "aaa111", status: "completed", conclusion: "success",
+                                       updated_at: "2026-08-26T12:00:00Z", actor: "rafael" },
+            %w[acme gadgets main] => { head_sha: "bbb222", status: "completed", conclusion: "success",
+                                       updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+          )
+          one_cycle = lambda { |project_paths|
+            Owlook::Collector.new(
+              config_loader: -> { Owlook::Config.new({ "projects" => project_paths }) },
+              store: Owlook::Store.load(state_path),
+              writer: Owlook::StateWriter.new(state_path),
+              github_source: github_source
+            ).poll_ci_once
+          }
+
+          one_cycle.call([project_a, project_b])
+
+          projects = JSON.parse(File.read(state_path)).map { |e| e["project"] }.uniq.sort
+
+          assert_equal ["acme/gadgets", "acme/widgets"], projects
+
+          one_cycle.call([project_b])
+
+          projects = JSON.parse(File.read(state_path)).map { |e| e["project"] }.uniq.sort
+
+          assert_equal ["acme/gadgets"], projects,
+                       "acme/widgets was removed from config.yml and should disappear entirely, " \
+                       "not just stop being polled"
+        end
+      end
+    end
+  end
+
   def test_poll_ci_once_does_not_notify_on_the_first_ever_result
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       Dir.mktmpdir do |state_dir|

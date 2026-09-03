@@ -73,16 +73,40 @@ module Owlook
       @entries.select { |key, _observation| key[0] == project && key[1] == kind }.values
     end
 
-    # Removes every stored observation of the given kind. Normal polling
-    # only ever adds or replaces, never deletes — this exists for the one
-    # case where an entire kind needs to start over: the widget's "all
-    # branches" toggle flipping means the set of branches CI could ever
-    # report on has genuinely changed, and a branch no longer in that set
-    # (say, a dependabot branch after switching back off) would otherwise
-    # sit in the state file forever with nothing else to prune it. See
-    # Collector#sync_all_branches_setting.
-    def forget_kind(kind)
-      @entries.reject! { |key, _observation| key[1] == kind }
+    # Removes a project's stored "ci" observations for any branch not in
+    # keep_branches. Normal polling only ever adds or replaces, never
+    # deletes — this is the one exception, called every cycle (see
+    # Collector#poll_project_ci) with whatever branch list this cycle
+    # actually computed, so a branch no longer relevant — the "all
+    # branches" setting flipped back off, or the branch was simply merged
+    # or deleted upstream — doesn't sit in the state file forever with
+    # nothing else to prune it. Unconditional rather than gated on
+    # detecting a settings change: a single-shot process re-launched fresh
+    # every cycle (see bin/owlook-collector) has no reliable way to tell
+    # "the setting just changed" apart from "this happens to be this
+    # process's first poll" — an earlier version of this reconciliation
+    # lived in Collector as a transition check against an in-memory
+    # @known_all_branches, which broke silently under exactly that
+    # architecture (every cycle looked like a first poll, so it never
+    # fired) without failing any existing test, since those tests reused
+    # one Collector across multiple polls instead of a fresh one per
+    # cycle.
+    def forget_ci_branches(project, keep_branches)
+      @entries.reject! { |key, _observation| key[0] == project && key[1] == "ci" && !keep_branches.include?(key[2]) }
+    end
+
+    # Removes every stored observation — any kind, any branch/destination —
+    # for a project not in keep_projects. A project removed from
+    # config.yml stops being polled entirely, but nothing else ever
+    # removes what's already in the Store: without this, a project you
+    # deleted from config.yml keeps showing its last-known tab, CI, and
+    # queue rows forever, since the state file only ever gets added to or
+    # replaced, never reconciled against what's actually still configured.
+    # See Collector#poll_ci_once, the one caller — every kind lives under
+    # one project identifier (key[0], "owner/repo"), so one pass here
+    # covers CI, deploy, queue, and both *_timing kinds at once.
+    def forget_projects_except(keep_projects)
+      @entries.select! { |key, _observation| keep_projects.include?(key[0]) }
     end
 
     def snapshot
