@@ -86,6 +86,22 @@ module Owlook
       log("queue poll cycle finished in #{(Time.now - started).round(1)}s")
     end
 
+    # write_snapshot (called throughout poll_ci_once/poll_queues_once)
+    # skips an empty snapshot — normally a no-op guard, since a project
+    # being polled at all means it has at least a "checking" placeholder
+    # by the time write_snapshot runs. With zero configured projects,
+    # though, poll_project_ci/poll_project_queues never run at all, so
+    # write_snapshot never runs either — the state file would never even
+    # get created, which the widget can't tell apart from "the collector
+    # hasn't run its first cycle yet" (see Panel.qml's stateFileLoaded).
+    # Called once, unconditionally, at the very end of every cycle (see
+    # bin/owlook-collector) regardless of what ran, so the state file
+    # always reflects the current truth, including "confirmed: nothing
+    # configured."
+    def flush_state
+      @writer.write(@store.snapshot)
+    end
+
     private
 
     # A config edit caught mid-write (or briefly invalid YAML) shouldn't

@@ -65,4 +65,9 @@ collector = Owlook::Collector.new(
 log("cycle starting: watching #{CONFIG_PATH} (#{config_loader.call.projects.size} project(s)) -> #{STATE_PATH}")
 collector.poll_ci_once
 collector.poll_queues_once
+# Unconditional, even with zero projects configured — see
+# Collector#flush_state's own comment for why that case specifically
+# needs this (poll_ci_once/poll_queues_once never touch the state file at
+# all when there's nothing to poll).
+collector.flush_state
 log("cycle finished")

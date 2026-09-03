@@ -341,8 +341,12 @@ function shortProjectName(project) {
   return parts[parts.length - 1] || String(project || "")
 }
 
-// "1 project" / "5 projects" — PanelHero uppercases this itself.
+// "1 project" / "5 projects" — PanelHero uppercases this itself. Zero
+// reads as "NO PROJECTS" rather than "0 projects" — a real, actionable
+// state (see Panel.qml's noProjectsConfigured), not just an edge case of
+// the count.
 function projectCountLabel(count) {
+  if (count === 0) return "no projects"
   return count + (count === 1 ? " project" : " projects")
 }
 

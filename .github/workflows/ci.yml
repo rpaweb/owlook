@@ -142,11 +142,14 @@ jobs:
         run: |
           mkdir -p /tmp/owlook-smoke
           echo "projects: []" > /tmp/owlook-smoke/config.yml
-          # No state file is expected here — StateWriter only ever writes
-          # when there's something to report, and zero projects means
-          # zero observations, which is correct, not a bug. The point of
-          # this step is just that the script boots and exits 0; real
-          # behavior with real projects is what the Minitest suite covers.
+          # Zero projects means zero observations, but the state file
+          # should still get written as an empty array — that's what tells
+          # the widget "confirmed: nothing configured" apart from "hasn't
+          # run its first cycle yet" (see Collector#flush_state and
+          # Panel.qml's stateFileLoaded). Real behavior with real projects
+          # is what the Minitest suite covers; this just confirms the
+          # script boots, exits 0, and produces that empty-but-present file.
           OWLOOK_CONFIG=/tmp/owlook-smoke/config.yml XDG_RUNTIME_DIR=/tmp/owlook-smoke GITHUB_TOKEN=smoke-test \
             ruby collector/bin/owlook-collector
-          echo "✓ collector ran a full cycle with no crash"
+          test "$(cat /tmp/owlook-smoke/owlook.json)" = "[]"
+          echo "✓ collector ran a full cycle with no crash and wrote an empty state file"

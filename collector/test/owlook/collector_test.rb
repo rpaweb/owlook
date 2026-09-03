@@ -5,6 +5,32 @@ require "tmpdir"
 require "fileutils"
 
 class Owlook::CollectorTest < Minitest::Test
+  # write_snapshot (used throughout poll_ci_once/poll_queues_once) never
+  # runs at all when there are zero configured projects — poll_project_ci/
+  # poll_project_queues, its only callers, never get invoked for an empty
+  # project list. Without an explicit, unconditional write, the state file
+  # never gets created at all in that case, which the widget can't tell
+  # apart from "the collector hasn't run its first cycle yet" — see
+  # flush_state, the fix, called once by bin/owlook-collector at the end
+  # of every cycle regardless of what ran.
+  def test_flush_state_writes_an_empty_array_when_there_are_no_projects
+    Dir.mktmpdir do |state_dir|
+      state_path = File.join(state_dir, "state.json")
+      collector = Owlook::Collector.new(
+        config_loader: -> { Owlook::Config.new({ "projects" => [] }) },
+        store: Owlook::Store.new,
+        writer: Owlook::StateWriter.new(state_path),
+        github_source: FakeGithubSource.new({})
+      )
+
+      collector.poll_ci_once
+      collector.poll_queues_once
+      collector.flush_state
+
+      assert_equal [], JSON.parse(File.read(state_path))
+    end
+  end
+
   def test_poll_ci_once_records_an_observation_per_project_and_writes_the_state_file
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       Dir.mktmpdir do |state_dir|

@@ -36,6 +36,12 @@ Panel {
   property var barWidgetRoot: root
   property int activeTabIndex: 0
   property bool showingSettings: false
+  // Reset on every close, however it happens (clicking outside, the bar
+  // icon, another panel taking over) — walking into Settings should
+  // never be something a later, unrelated open has to remember its way
+  // out of. Reopening always lands on tabs+the active project (or
+  // emptyProjectsView, the only view there is with zero projects).
+  onOpenedChanged: if (!opened) showingSettings = false
 
   // "All branches" persists into Omarchy's shared shell.json (the same
   // file the bar's own layout editor writes to) rather than a second
@@ -70,6 +76,16 @@ Panel {
   readonly property string configPath: (Quickshell.env("HOME") || "") + "/.config/owlook/config.yml"
 
   property var entries: []
+  // True once the state file has actually loaded at least once — not the
+  // same thing as entries.length > 0. Distinguishes "the collector hasn't
+  // written a state file yet" (stateFileLoaded false — a real cold start,
+  // or config.yml is broken) from "it wrote one and confirmed there's
+  // nothing configured" (stateFileLoaded true, entries still empty — see
+  // noProjectsConfigured below, and Collector#flush_state on the write
+  // side, which is what makes the empty-but-present case possible at
+  // all: without it the state file never gets created when config.yml
+  // has zero projects, and this would never turn true).
+  property bool stateFileLoaded: false
 
   readonly property var projects: Model.groupByProject(root.entries)
   // Clamped rather than trusted as-is: if a project disappears from the
@@ -78,6 +94,10 @@ Panel {
   readonly property int activeIndex: projects.length === 0 ? 0
     : Math.max(0, Math.min(root.activeTabIndex, projects.length - 1))
   readonly property var activeProject: projects.length > 0 ? projects[root.activeIndex] : null
+  // A real, confirmed fact (the collector ran a cycle and found zero
+  // projects), not a loading state — see the tabs/body/settings CTA all
+  // reacting to this below.
+  readonly property bool noProjectsConfigured: root.stateFileLoaded && root.entries.length === 0
 
   readonly property bool alarming: Model.anyBad(entries)
   readonly property bool loading: Model.anyLoading(entries)
@@ -98,6 +118,7 @@ Panel {
   }
 
   function applyState(raw) {
+    root.stateFileLoaded = true
     root.entries = Model.parseEntries(raw)
   }
 
@@ -108,7 +129,10 @@ Panel {
     printErrors: false
     onLoaded: root.applyState(text())
     onFileChanged: reload()
-    onLoadFailed: root.entries = []
+    onLoadFailed: {
+      root.stateFileLoaded = false
+      root.entries = []
+    }
   }
 
   // Own instance, same as BarWidget.qml's — each just reads the same
@@ -183,8 +207,14 @@ Panel {
             // renders a font glyph (no icon-component slot to hand it a
             // Shape), so the "back" state is its own small item rather
             // than a different iconText on the same button.
+            // Unloaded entirely with zero projects configured — there's
+            // nothing to settings-manage yet (see noProjectsConfigured),
+            // only projects to add, and that CTA already sits front and
+            // center below (emptyProjectsView) without needing a detour
+            // through Settings to find it.
             trailingControl: Component {
               Loader {
+                active: !root.noProjectsConfigured
                 sourceComponent: heroBlock.settingsOpen ? backControl : settingsControl
 
                 Component {
@@ -234,8 +264,13 @@ Panel {
           foreground: root.barForeground
         }
 
+        // Only for the real "nothing's loaded yet" case — a fresh start,
+        // or config.yml briefly invalid. Zero projects confirmed (see
+        // noProjectsConfigured) gets its own centered view in body's
+        // place below instead of this line, since that's a real state to
+        // act on, not something to just wait out.
         Text {
-          visible: !root.showingSettings && root.entries.length === 0
+          visible: !root.showingSettings && !root.stateFileLoaded
           width: parent.width
           text: "No data yet — is the collector running?"
           color: Qt.darker(root.barForeground, 1.4)
@@ -494,6 +529,46 @@ Panel {
         }
       }
 
+      // Same space body occupies, shown instead of it (never both — see
+      // noProjectsConfigured) when the collector has confirmed there's
+      // nothing to track: no tabs (root.projects is empty right along
+      // with root.entries, so tabsList above already hides on its own),
+      // just the fact and the one thing to do about it, centered rather
+      // than tucked under the header like the transient "No data yet"
+      // line above — this is a real state to act on, not a loading
+      // flicker to glance past.
+      Item {
+        id: emptyProjectsView
+        visible: !root.showingSettings && root.noProjectsConfigured
+        anchors.top: header.bottom
+        anchors.topMargin: Style.space(10)
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+
+        Column {
+          anchors.centerIn: parent
+          width: parent.width - Style.space(40)
+          spacing: Style.space(14)
+
+          Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            text: "No projects configured"
+            color: root.barForeground
+            font.family: Style.font.family
+            font.pixelSize: Style.font.bodySmall
+            font.bold: true
+          }
+
+          ConfigLink {
+            width: parent.width
+            title: "Add tracked projects"
+            description: "Opens config.yml in your default editor — list a repository per line to start tracking it."
+          }
+        }
+      }
+
       // Settings — opened via the gear icon in the hero. Swaps into the
       // same fixed space tabs+body use rather than adding a new region,
       // so the panel's outer size stays untouched by how many settings
@@ -581,73 +656,22 @@ Panel {
         // terminal for the latter), so this is one exec call instead of
         // reimplementing project management as a second UI. Pinned to
         // the bottom, below the separator — a destination you jump out
-        // to, not one more toggle in the scrollable list above.
+        // to, not one more toggle in the scrollable list above. Settings
+        // itself is unreachable with zero projects configured (the gear
+        // icon hides — see heroBlock's trailingControl below), so this
+        // row and emptyProjectsView's own copy of the same CTA never
+        // actually show at the same time despite neither one checking
+        // for the other.
         Item {
           id: configRow
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.bottom: parent.bottom
-          height: Math.max(44, configRowContent.implicitHeight + Style.space(16))
+          height: configLink.implicitHeight
 
-          Rectangle {
+          ConfigLink {
+            id: configLink
             anchors.fill: parent
-            radius: Style.cornerRadius
-            color: configMouse.containsMouse
-              ? Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.08)
-              : "transparent"
-          }
-
-          // Same shape as the Toggle row above: label+description Column
-          // (width = whatever's left after the control) and the control
-          // itself, side by side in a Row, both centered on the row as a
-          // whole — not the switch, an OpenIcon standing in for it.
-          Row {
-            id: configRowContent
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: Style.space(10)
-            anchors.rightMargin: Style.space(10)
-            spacing: Style.space(10)
-
-            Column {
-              width: parent.width - openIndicator.width - parent.spacing
-              spacing: Style.space(2)
-              anchors.verticalCenter: parent.verticalCenter
-
-              Text {
-                text: "Edit tracked projects"
-                color: root.barForeground
-                font.family: Style.font.family
-                font.pixelSize: Style.font.bodySmall
-                font.bold: true
-              }
-
-              Text {
-                width: parent.width
-                text: "Opens config.yml in your default editor — add or remove repositories there."
-                color: Qt.darker(root.barForeground, 1.4)
-                font.family: Style.font.family
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.Wrap
-              }
-            }
-
-            OpenIcon {
-              id: openIndicator
-              anchors.verticalCenter: parent.verticalCenter
-              implicitWidth: Style.space(20)
-              implicitHeight: Style.space(20)
-              strokeColor: Qt.darker(root.barForeground, 1.3)
-            }
-          }
-
-          MouseArea {
-            id: configMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: Quickshell.execDetached(["omarchy-launch-editor", root.configPath])
           }
         }
       }
@@ -1132,6 +1156,84 @@ Panel {
         PathLine { x: openIcon.width * (15 / 24); y: openIcon.height * (9 / 24) }
         PathLine { x: openIcon.width * (14.7 / 24); y: openIcon.height * (13 / 24) }
       }
+    }
+  }
+
+  // ---- config.yml link ---------------------------------------------------
+
+  // The "open config.yml in your editor" action — shared between
+  // Settings' own pinned row and the empty-projects state (see
+  // noProjectsConfigured), which shows this exact action front and
+  // center instead of tucked away in Settings when there's nothing else
+  // to show yet. title/description are overridable per call site since
+  // the two contexts warrant slightly different wording ("edit" reads
+  // wrong when there's nothing to edit yet).
+  component ConfigLink: Item {
+    id: configLink
+    property string title: "Edit tracked projects"
+    property string description: "Opens config.yml in your default editor — add or remove repositories there."
+
+    implicitHeight: Math.max(44, configLinkContent.implicitHeight + Style.space(16))
+
+    Rectangle {
+      anchors.fill: parent
+      radius: Style.cornerRadius
+      color: configLinkMouse.containsMouse
+        ? Qt.rgba(root.barForeground.r, root.barForeground.g, root.barForeground.b, 0.08)
+        : "transparent"
+    }
+
+    // Same shape as the Toggle row in Settings: label+description Column
+    // (width = whatever's left after the control) and the control
+    // itself, side by side in a Row, both centered on the row as a
+    // whole — not a switch, an OpenIcon standing in for it.
+    Row {
+      id: configLinkContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
+      spacing: Style.space(10)
+
+      Column {
+        width: parent.width - configLinkIcon.width - parent.spacing
+        spacing: Style.space(2)
+        anchors.verticalCenter: parent.verticalCenter
+
+        Text {
+          text: configLink.title
+          color: root.barForeground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.bodySmall
+          font.bold: true
+        }
+
+        Text {
+          width: parent.width
+          text: configLink.description
+          color: Qt.darker(root.barForeground, 1.4)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.Wrap
+        }
+      }
+
+      OpenIcon {
+        id: configLinkIcon
+        anchors.verticalCenter: parent.verticalCenter
+        implicitWidth: Style.space(20)
+        implicitHeight: Style.space(20)
+        strokeColor: Qt.darker(root.barForeground, 1.3)
+      }
+    }
+
+    MouseArea {
+      id: configLinkMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: Quickshell.execDetached(["omarchy-launch-editor", root.configPath])
     }
   }
 
