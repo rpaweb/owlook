@@ -17,42 +17,47 @@ There are several ways you can contribute:
 
 Check the [existing issues](https://github.com/rpaweb/owlook/issues) before
 opening a new one. Include a clear description of the problem and steps to
-reproduce it — for anything CI/queue-status related, the relevant
-`journalctl --user -u owlook` output helps a lot.
+reproduce it — for anything CI/queue-status related, the collector logs
+to the shell's own output (`console.log`, visible via `journalctl --user`,
+grep for `[owlook]`); there's no separate service/unit to check.
 
 ## Pull Requests
 
-- Ensure the test suite passes: `bundle exec rake test`.
-- Run the linter and fix any offenses: `bundle exec rubocop`.
-- Run the security scanners: `bundle exec bundler-audit check` and
-  `semgrep scan --config p/ruby --config p/javascript --config p/security-audit lib/ shell/plugins/status/Model.js`.
-- **Changed anything under `shell/`?** CI can't validate QML for this
-  project — `qs.Commons`/`qs.Ui` (Quickshell's own module system) only
-  resolve inside a real, running Quickshell install, and there's no
-  headless way around that (see the README's CI section for the full
-  reasoning). Run `qmllint` on the changed files by hand, and — for
-  anything beyond a trivial change — actually install the plugin
-  (`shell/plugins/status/` → `~/.config/omarchy/plugins/owlook.status`,
-  see the README) and confirm it renders correctly in a live Quattro
-  shell before opening the PR.
+- Ensure the test suite passes: `cd collector && bundle exec rake test`.
+- Run the linter and fix any offenses: `bundle exec rubocop` (from `collector/`).
+- Run the security scanners: `bundle exec bundler-audit check` (from
+  `collector/`) and
+  `semgrep scan --config p/ruby --config p/javascript --config p/security-audit collector/lib/ Model.js`
+  (from the repo root).
+- **Changed a `.qml`/`.js` file at the repo root?** CI can't validate QML
+  for this project — `qs.Commons`/`qs.Ui` (Quickshell's own module
+  system) only resolve inside a real, running Quickshell install, and
+  there's no headless way around that (see the README's CI section for
+  the full reasoning). Run `qmllint` on the changed files by hand, and —
+  for anything beyond a trivial change — actually install the plugin
+  locally (`rsync` this repo, minus `.git`, into
+  `~/.config/omarchy/plugins/owlook.status/`, or symlink it) and confirm
+  it renders correctly in a live Quattro shell before opening the PR.
 - Keep changes focused on a single concern — a PR mixing an unrelated
   refactor with a bug fix is harder to review and harder to revert if
   something's wrong.
 - Follow [Conventional Commits](https://www.conventionalcommits.org/)
   for commit messages (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`,
   `test:`, `perf:`, `style:`), imperative mood, in English.
-- Add tests for new behavior — every `lib/owlook/*` class has a
-  corresponding `test/owlook/*_test.rb`; new code should follow the same
-  pattern.
+- Add tests for new behavior — every `collector/lib/owlook/*` class has a
+  corresponding `collector/test/owlook/*_test.rb`; new code should follow
+  the same pattern.
 
 ## Development
 
-Ruby >= 3.2 (this repo pins a specific version via `.ruby-version`,
-managed with [mise](https://mise.jdx.dev/)). Omarchy 4.x (Quattro) is
-needed to actually run the bar widget — see the README's Requirements
-section for the full list (the `gh` CLI, systemd running as your user).
+Ruby >= 3.2 (`collector/.ruby-version` pins the specific version this
+repo is developed on, managed with [mise](https://mise.jdx.dev/)).
+Omarchy 4.x (Quattro) is needed to actually run the bar widget — see the
+README's Requirements section for the full list (the `gh` and `kamal`
+CLIs). No systemd unit to set up — see README's "How it runs".
 
 ```bash
+cd collector
 bundle install
 bundle exec rake test              # full suite, no network access needed
 bundle exec rubocop                # style

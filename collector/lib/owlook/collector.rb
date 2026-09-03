@@ -3,15 +3,14 @@
 require "time"
 
 module Owlook
-  # Wires config -> git/kamal -> sources -> store -> state file. #run is the
-  # infinite loop the systemd unit calls; all the actual logic lives in
-  # #poll_ci_once / #poll_queues_once so it can be tested without looping or
-  # sleeping.
-  #
-  # Two cadences, not one: GitHub Actions is a free API call, safe every 30s.
-  # A queue or deploy check is a real SSH round-trip (kamal app exec /
-  # kamal app version), so both run on their own, slower interval — #run
-  # takes both separately.
+  # Wires config -> git/kamal -> sources -> store -> state file. One process
+  # invocation is one cycle: #poll_ci_once then #poll_queues_once, then the
+  # process exits — the widget's own Timer (see BarWidget.qml) is what
+  # decides when the next one runs, not a loop in here. One cadence for
+  # everything, not two: a short-lived, re-launched-from-scratch process has
+  # no in-memory state to carry a separate, slower queue/deploy interval
+  # across invocations anyway, so there's nothing a second cadence would
+  # actually buy here.
   #
   # GitHub Actions produces "ci" observations, identified by project +
   # branch (see Observation#key). Queue and deploy checks both produce
@@ -36,11 +35,8 @@ module Owlook
     # not a static Config — called fresh on every poll rather than once at
     # construction, so editing config.yml takes effect on the next cycle
     # (well within 30s) instead of needing a systemd restart.
-    # sleeper is injectable (real default: Kernel#sleep) purely so
-    # #wait_for_next_poll is testable without an actual test waiting out a
-    # real interval — see its own comment. max_concurrent_requests is
-    # injectable so a test can prove the cap holds without needing
-    # hundreds of real branches/threads to observe it.
+    # max_concurrent_requests is injectable so a test can prove the cap
+    # holds without needing hundreds of real branches/threads to observe it.
     def initialize(config_loader:, store:, writer:, github_source:,
                    kamal_source: Sources::Kamal.new, queue_source: Sources::Queue.new,
                    deploy_source: Sources::Deploy.new,
@@ -48,7 +44,7 @@ module Owlook
                    settings_loader: -> { WidgetSettings.load },
                    notifier: Notifier.new,
                    max_concurrent_requests: MAX_CONCURRENT_REQUESTS,
-                   sleeper: ->(seconds) { sleep(seconds) }, logger: nil)
+                   logger: nil)
       @config_loader = config_loader
       @store = store
       @writer = writer
@@ -60,10 +56,8 @@ module Owlook
       @settings_loader = settings_loader
       @notifier = notifier
       @max_concurrent_requests = max_concurrent_requests
-      @sleeper = sleeper
       @logger = logger
       @known_all_branches = nil
-      @known_projects = nil
       # Branches now poll concurrently (see poll_branches_concurrently) —
       # @store's own Hash isn't safe for unsynchronized concurrent
       # mutation, even across different keys.
@@ -72,13 +66,7 @@ module Owlook
 
     def poll_ci_once
       sync_all_branches_setting
-      # Read once, remember it — the same value wait_for_next_poll compares
-      # against on every tick, so an edit to config.yml made *during* a
-      # blocking poll (not just between polls) is still caught, the same
-      # class of race sync_all_branches_setting's own comment covers.
-      current_projects = projects
-      @known_projects = current_projects
-      current_projects.each { |path| poll_project_ci(path) }
+      projects.each { |path| poll_project_ci(path) }
     end
 
     # Logs how long a full cycle actually takes — the queue interval is an
@@ -92,81 +80,7 @@ module Owlook
       log("queue poll cycle finished in #{(Time.now - started).round(1)}s")
     end
 
-    def run(ci_interval:, queue_interval:)
-      next_queue_check = Time.now
-      loop do
-        next_queue_check = run_one_cycle(queue_interval: queue_interval, next_queue_check: next_queue_check)
-        wait_for_next_poll(ci_interval)
-      end
-    end
-
     private
-
-    # One iteration of #run's loop, pulled out so a test can call it
-    # directly instead of looping/sleeping forever — same reason
-    # poll_ci_once/poll_queues_once already are their own methods.
-    # Returns the next_queue_check a caller should carry into the
-    # following cycle.
-    #
-    # A project added to config.yml gets its CI checked promptly already
-    # (poll_ci_once tracks @known_projects — see wait_for_next_poll).
-    # Queues didn't share that: a project added right after a queue cycle
-    # finished could sit for up to a full queue_interval before its
-    # destinations got their first check — confirmed live, a newly-added
-    # project's QUEUES section stayed on "checking" far longer than its
-    # CI section did. Forcing an immediate check here closes that gap the
-    # same way.
-    def run_one_cycle(queue_interval:, next_queue_check:)
-      previously_known_projects = @known_projects
-      poll_ci_once
-      next_queue_check = Time.now if @known_projects != previously_known_projects
-      if Time.now >= next_queue_check
-        poll_queues_once
-        next_queue_check = Time.now + queue_interval
-      end
-      next_queue_check
-    end
-
-    # Sleeps in short ticks instead of one flat call for the whole
-    # interval, so flipping the widget's "all branches" toggle (written to
-    # shell.json — see WidgetSettings) takes effect within about a second
-    # instead of waiting out the rest of a 30s interval. A config.yml edit
-    # is made ahead of time with nobody watching, so a slow reload there
-    # is fine; a toggle is clicked with the panel open, and nothing
-    # visibly happening for up to 30s reads as broken.
-    #
-    # Compares against @known_all_branches (set by sync_all_branches_setting,
-    # the last value this collector actually acted on) rather than a
-    # baseline captured fresh here — a real bug this fixed: the queue poll
-    # and a broad-mode CI poll both block for 20+ real seconds outside this
-    # loop, so a toggle clicked during either window would already be
-    # reflected in shell.json by the time this method's own baseline read
-    # happened, making it look unchanged for the rest of that wait and
-    # missing the fast path entirely (confirmed live: 27s+ of missed
-    # detection window per cycle between the two).
-    def wait_for_next_poll(ci_interval, tick: 1)
-      elapsed = 0
-      while elapsed < ci_interval
-        step = [tick, ci_interval - elapsed].min
-        @sleeper.call(step)
-        elapsed += step
-        if @settings_loader.call.all_branches? != @known_all_branches
-          log("all_branches change detected after #{elapsed}s wait, polling early")
-          return
-        end
-        # A project added (or removed) from config.yml gets the same
-        # early wake as a settings toggle — the new project's tab and its
-        # "checking" spinner (see announce_new_ci_branches) shouldn't sit
-        # behind up to ci_interval of nothing visibly happening. The
-        # regular CI/queue *data* refresh cadence is untouched by this —
-        # only noticing that the tracked project list itself changed
-        # jumps the queue.
-        if projects != @known_projects
-          log("project list changed after #{elapsed}s wait, polling early")
-          return
-        end
-      end
-    end
 
     # When the widget's "all branches" toggle flips, every CI row across
     # every project gets forgotten so the next poll re-announces from
@@ -231,11 +145,9 @@ module Owlook
     # not just interleaving. This is what turned a broad-mode poll of ~20
     # branches from ~25s (sequential, one HTTP round-trip at a time) into
     # something bounded by the slowest single branch instead of their sum
-    # — and, just as importantly, stopped a settings-toggle click from
-    # being stuck behind that whole sequential run before the collector
-    # could even notice it (see wait_for_next_poll's own comment for that
-    # half of the same underlying bug, confirmed live: a 28s detection gap
-    # traced straight back to this).
+    # — and, just as importantly, keeps a full cycle (see the class comment)
+    # comfortably under the widget's 30s Timer interval instead of routinely
+    # spilling into the next one.
     #
     # Capped at MAX_CONCURRENT_REQUESTS (see work_concurrently) — a broad
     # mode poll of a very large repo no longer bursts one request per

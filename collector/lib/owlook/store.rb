@@ -1,11 +1,39 @@
 # frozen_string_literal: true
 
+require "json"
+require "time"
+
 module Owlook
   # In-memory merge of Observations into one row per project+destination.
   # Conflicts resolve by timestamp: whichever observation describes the more
   # recent event wins, regardless of which source reported it or when it was
   # observed. Purely in-memory — persistence is StateWriter's job.
   class Store
+    # Rehydrates a Store from a previously-written state file — what makes
+    # a single-shot collector process (invoked fresh every cycle by the
+    # widget's own Timer, not a long-lived daemon) behave the same as one
+    # that's been running the whole time. Without this, every branch and
+    # destination would look brand new on every single invocation: the
+    # "checking" placeholder dance (see Collector#announce_new_ci_branches)
+    # exists specifically for a genuinely new branch, and firing it every
+    # cycle would flash real data back to "checking" constantly instead of
+    # just once, ever, per branch/destination. Missing or unparseable file
+    # (first run, corrupt write) is the same as no prior state — not an
+    # error, same as StateWriter treating a missing file as "nothing
+    # written yet".
+    def self.load(path)
+      store = new
+      raw = JSON.parse(File.read(path), symbolize_names: true)
+      raw.each do |entry|
+        entry[:timestamp] = Time.parse(entry[:timestamp]) if entry[:timestamp]
+        entry[:observed_at] = Time.parse(entry[:observed_at]) if entry[:observed_at]
+        store.record(Observation.new(**entry))
+      end
+      store
+    rescue Errno::ENOENT, JSON::ParserError
+      store
+    end
+
     def initialize
       @entries = {}
     end

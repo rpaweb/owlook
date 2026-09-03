@@ -1,14 +1,26 @@
 # <img src="assets/owlook-icon.png" width="44" height="44" align="top" alt=""> Owlook
 
-[![Gem Version](https://img.shields.io/gem/v/owlook)](https://rubygems.org/gems/owlook)
 [![Checks](https://img.shields.io/github/actions/workflow/status/rpaweb/owlook/ci.yml?label=checks&logo=github)](https://github.com/rpaweb/owlook/actions/workflows/ci.yml)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
-[![Downloads](https://img.shields.io/gem/dt/owlook)](https://rubygems.org/gems/owlook)
-[![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.2-CC342D)](owlook.gemspec)
+[![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.2-CC342D)](collector/.ruby-version)
 
 CI, deploy, and background-job status for your Rails projects, surfaced as a
-bar widget in Omarchy (Quattro) — one long-lived collector process instead
-of alt-tabbing between GitHub, a terminal, and a queue dashboard.
+bar widget in Omarchy (Quattro) — instead of alt-tabbing between GitHub, a
+terminal, and a queue dashboard.
+
+## Installation
+
+```bash
+omarchy plugin add https://github.com/rpaweb/owlook --enable
+```
+
+One command. No systemd unit, no gem to install separately — the widget
+runs its own collector in the background (see [How it runs](#how-it-runs)
+below), so `omarchy plugin add` is the whole install.
+
+Installing/enabling a plugin runs arbitrary code inside your long-lived
+shell process — read it first, same as Omarchy's own warning for
+third-party plugins.
 
 ## What it tracks
 
@@ -32,43 +44,31 @@ host besides GitHub.
 ## Requirements
 
 - Omarchy 4.x (Quattro) — targets the Quickshell-based shell.
-- Ruby, managed by [mise](https://mise.jdx.dev/) (pinned via `.ruby-version`).
+- Ruby, managed by [mise](https://mise.jdx.dev/) (pinned via
+  `collector/.ruby-version`) — no gems to install; the collector only
+  shells out to CLIs (see below), never a `bundle install` for end users.
 - The [`gh`](https://cli.github.com/) CLI, authenticated (`gh auth login`).
   Falls back to `GITHUB_TOKEN` if `gh` isn't available.
-- systemd running as your user (`systemctl --user`).
+- The [`kamal`](https://kamal-deploy.org/) CLI, since deploy/queue tracking
+  runs it directly — already installed if you're deploying with Kamal.
 
-## Installation
+## How it runs
 
-```bash
-bundle install
-bin/owlook-install-service --enable   # renders the systemd unit, then enables + starts it
-systemctl --user status owlook        # confirm it's active
-```
+`BarWidget.qml` schedules its own collector: a `Timer` runs
+`collector/bin/owlook-collector` (a plain Ruby script, vendored in this
+same repo) every 30 seconds via Quickshell's own `Process` type, writing
+results to `$XDG_RUNTIME_DIR/owlook.json`. `Panel.qml` reads that file
+through a `FileView` — no polling on the QML side, no process the widget
+itself has to manage beyond starting the next cycle. A cycle that's
+still running when the next one would start is skipped, not stacked, so
+a slow cycle (cold SSH connections, a project with many branches) never
+piles up overlapping runs.
 
-Drop `--enable` to only render `~/.config/systemd/user/owlook.service` —
-useful to review it first — then enable it yourself:
-`systemctl --user daemon-reload && systemctl --user enable --now owlook`.
-
-It's a normal systemd `--user` unit, so the usual commands apply — no
-owlook-specific tooling needed:
-
-```bash
-systemctl --user stop owlook              # pause it, keeps it enabled for next login
-systemctl --user disable --now owlook     # stop it and remove it from login startup
-systemctl --user enable --now owlook      # turn it back on after either
-```
-
-Then the bar widget — not published anywhere yet, so install by hand:
-
-```bash
-cp -r shell/plugins/status ~/.config/omarchy/plugins/owlook.status
-omarchy plugin validate ~/.config/omarchy/plugins/owlook.status
-omarchy plugin enable owlook.status
-```
-
-Installing/enabling a plugin runs arbitrary code inside your long-lived
-shell process — read it first, same as Omarchy's own warning for
-third-party plugins.
+This means polling only happens while the Omarchy shell itself is
+running — restarting it (`omarchy restart shell`, a theme change, a
+crash) pauses updates until it comes back, same as any other bar widget.
+For most use this is unnoticeable; there's no separate systemd service
+to keep it running independently of the shell.
 
 ## Configuration
 
@@ -85,26 +85,29 @@ all derived from each project's local checkout. Add or remove projects
 freely; picked up on the next poll, no restart needed. The panel's
 Settings view (gear icon) has a shortcut to open this file in your editor.
 
-`OWLOOK_POLL_INTERVAL` (default `30`s, CI), `OWLOOK_QUEUE_POLL_INTERVAL`
-(default `60`s, deploy + queue checks), and `OWLOOK_CONFIG` override the
-defaults via the environment if needed.
+`OWLOOK_CONFIG` overrides the config path via the environment if needed
+(default `~/.config/owlook/config.yml`).
 
 ## Troubleshooting
 
 A destination stuck on `unreachable` even though you can SSH to it
 yourself almost always means that server's key isn't loaded into
-gpg-agent's SSH support specifically — the only agent a systemd `--user`
-service can reach, regardless of what your terminal uses:
+gpg-agent's SSH support specifically — the only agent this collector can
+reach (confirmed live: the shell process's own environment has no
+`SSH_AUTH_SOCK` either, same as any background process), regardless of
+what your terminal uses:
 
 ```bash
 SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/gnupg/S.gpg-agent.ssh ssh-add ~/.ssh/that_key
 ```
 
-No restart needed — the next poll picks it up.
+No restart needed — the next cycle picks it up.
 
 ## Development
 
 ```bash
+cd collector
+bundle install
 bundle exec rake test              # full suite, no network access needed
 bundle exec rubocop
 ```

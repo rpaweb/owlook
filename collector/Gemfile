@@ -1,0 +1,12 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+# No runtime gems: the collector shells out to the `kamal`/`gh`/`ssh`
+# CLIs directly (see Sources::Deploy, Sources::Queue, GithubClient) —
+# never `require`s them as libraries. Dev/test tooling only below.
+gem "bundler-audit"
+gem "minitest"
+gem "rake"
+gem "rubocop"
+gem "rubocop-minitest"

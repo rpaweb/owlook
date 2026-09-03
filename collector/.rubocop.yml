@@ -7,7 +7,6 @@ AllCops:
   SuggestExtensions: false
   Exclude:
     - "vendor/**/*"
-    - "shell/**/*"
 
 # Line length isn't a correctness signal on code that's already been through
 # extensive review this way — flags long lines without fixing anything real.

@@ -62,22 +62,6 @@ class Owlook::CollectorTest < Minitest::Test
     end
   end
 
-  # The value wait_for_next_poll compares against on every tick to catch a
-  # config.yml edit early (see its own test) — has to be set from a real
-  # poll, not just read fresh at comparison time, for the same reason
-  # @known_all_branches is.
-  def test_poll_ci_once_remembers_the_project_list_it_just_read
-    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
-      collector = build_collector(
-        config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) }
-      )
-
-      collector.poll_ci_once
-
-      assert_equal [project_path], collector.instance_variable_get(:@known_projects)
-    end
-  end
-
   # A branch the store has never seen gets an immediate "checking" row,
   # written before the real GitHub calls even start — same reason
   # poll_queues_once announces a destination before its real check. GitHub
@@ -540,11 +524,9 @@ class Owlook::CollectorTest < Minitest::Test
   end
 
   # The real bug this covers: a broad-mode poll of N branches previously
-  # took N round-trips, back to back — during which the collector couldn't
-  # notice a settings-toggle click either (see wait_for_next_poll's own
-  # comment for that half of it). Branches are polled concurrently now, so
-  # 5 branches at ~40ms each finishes in about one branch's time, not the
-  # sum of all five.
+  # took N round-trips, back to back. Branches are polled concurrently now,
+  # so 5 branches at ~40ms each finishes in about one branch's time, not
+  # the sum of all five.
   def test_poll_ci_once_polls_branches_concurrently_not_one_at_a_time
     with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
       Dir.mktmpdir do |state_dir|
@@ -1201,177 +1183,6 @@ class Owlook::CollectorTest < Minitest::Test
 
         assert_equal 1, ci_rows.size
         assert_equal "acme/widgets", ci_rows.first["project"]
-      end
-    end
-  end
-
-  # #run's sleep, tested in isolation the same way poll_ci_once/
-  # poll_queues_once are — no real waiting, no infinite loop.
-  def test_wait_for_next_poll_wakes_up_early_when_the_all_branches_setting_changes
-    values = [false, true, true] # unchanged, then flips
-    call = -1
-    sleeps = []
-    collector = build_collector(
-      settings_loader: lambda {
-        call += 1
-        FakeSettings.new(all_branches: values[[call, values.size - 1].min])
-      },
-      sleeper: ->(seconds) { sleeps << seconds }
-    )
-    # Primed the way sync_all_branches_setting would leave it after a real
-    # poll — @known_all_branches, not a baseline re-read at call time (see
-    # wait_for_next_poll's own comment for the real bug that distinction
-    # fixed: a toggle flipped during a blocking queue/broad-CI poll was
-    # already reflected in shell.json by the time a freshly-captured
-    # baseline would have read it, so it looked unchanged for the rest of
-    # that wait).
-    collector.instance_variable_set(:@known_all_branches, false)
-    # Also primed to match build_collector's default config_loader ([]) —
-    # otherwise the project-list check (unprimed @known_projects is nil)
-    # would itself fire on the very first tick, for the wrong reason.
-    collector.instance_variable_set(:@known_projects, [])
-
-    collector.send(:wait_for_next_poll, 30, tick: 10)
-
-    # One 10s tick, not the full three it'd take to reach 30 — the second
-    # tick is where the setting changed, so it stops there.
-    assert_equal [10, 10], sleeps
-  end
-
-  def test_wait_for_next_poll_runs_the_full_interval_when_nothing_changes
-    sleeps = []
-    collector = build_collector(
-      settings_loader: -> { FakeSettings.new(all_branches: false) },
-      sleeper: ->(seconds) { sleeps << seconds }
-    )
-    collector.instance_variable_set(:@known_all_branches, false)
-    collector.instance_variable_set(:@known_projects, [])
-
-    collector.send(:wait_for_next_poll, 25, tick: 10)
-
-    # 10 + 10 + 5 = 25 — the last tick is capped to whatever's left,
-    # not a full 10s past the interval.
-    assert_equal [10, 10, 5], sleeps
-  end
-
-  def test_wait_for_next_poll_wakes_up_early_when_the_setting_changed_while_it_wasnt_watching
-    # The exact race the fix above addresses: nothing changes during any
-    # tick this method sees, because the change already happened before
-    # this method was ever called (e.g. during a blocking queue poll) —
-    # @known_all_branches still holds the pre-change value, so the very
-    # first tick catches it.
-    sleeps = []
-    collector = build_collector(
-      settings_loader: -> { FakeSettings.new(all_branches: true) },
-      sleeper: ->(seconds) { sleeps << seconds }
-    )
-    collector.instance_variable_set(:@known_all_branches, false)
-
-    collector.send(:wait_for_next_poll, 30, tick: 10)
-
-    assert_equal [10], sleeps
-  end
-
-  # Same fast-path as the all_branches setting, for a different trigger —
-  # adding (or removing) a project in config.yml shouldn't sit behind up to
-  # ci_interval of nothing visibly happening before its tab and "checking"
-  # spinner show up (see announce_new_ci_branches).
-  def test_wait_for_next_poll_wakes_up_early_when_the_project_list_changes
-    project_lists = [["a"], %w[a b], %w[a b]] # unchanged, then "b" is added
-    call = -1
-    sleeps = []
-    collector = build_collector(
-      config_loader: lambda {
-        call += 1
-        Owlook::Config.new({ "projects" => project_lists[[call, project_lists.size - 1].min] })
-      },
-      settings_loader: -> { FakeSettings.new(all_branches: false) },
-      sleeper: ->(seconds) { sleeps << seconds }
-    )
-    collector.instance_variable_set(:@known_all_branches, false)
-    # Primed the way poll_ci_once would leave it after a real poll — see
-    # the all_branches test above for why this can't be a baseline re-read.
-    collector.instance_variable_set(:@known_projects, Owlook::Config.new({ "projects" => ["a"] }).projects)
-
-    collector.send(:wait_for_next_poll, 30, tick: 10)
-
-    # One 10s tick, not the full three — the second tick is where "b" got
-    # added, so it stops there.
-    assert_equal [10, 10], sleeps
-  end
-
-  def test_wait_for_next_poll_wakes_up_early_when_the_project_list_changed_while_it_wasnt_watching
-    # Same race as the all_branches version: the change already happened
-    # before this method was ever called (e.g. during a blocking queue
-    # poll), so @known_projects still holds the pre-change list and the
-    # very first tick catches it.
-    sleeps = []
-    collector = build_collector(
-      config_loader: -> { Owlook::Config.new({ "projects" => %w[a b] }) },
-      settings_loader: -> { FakeSettings.new(all_branches: false) },
-      sleeper: ->(seconds) { sleeps << seconds }
-    )
-    collector.instance_variable_set(:@known_all_branches, false)
-    collector.instance_variable_set(:@known_projects, Owlook::Config.new({ "projects" => ["a"] }).projects)
-
-    collector.send(:wait_for_next_poll, 30, tick: 10)
-
-    assert_equal [10], sleeps
-  end
-
-  # The gap wait_for_next_poll's own project-list fast-path didn't
-  # cover: CI notices a newly-added project quickly, but queues only ran
-  # on their own next_queue_check schedule regardless — confirmed live,
-  # a new project's QUEUES section sat on "checking" far longer than its
-  # CI section did.
-  def test_run_one_cycle_polls_queues_immediately_when_the_project_list_just_changed
-    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_a|
-      with_project(remote: "https://github.com/acme/gadgets.git", branch: "main") do |project_b|
-        Dir.mktmpdir do |state_dir|
-          state_path = File.join(state_dir, "state.json")
-          project_lists = [[project_a], [project_a, project_b]]
-          call = -1
-          collector = Owlook::Collector.new(
-            config_loader: lambda {
-              call += 1
-              Owlook::Config.new({ "projects" => project_lists[[call, project_lists.size - 1].min] })
-            },
-            store: Owlook::Store.new,
-            writer: Owlook::StateWriter.new(state_path),
-            github_source: FakeGithubSource.new({}),
-            kamal_source: FakeKamalSource.new(project_a => ["default"], project_b => ["default"]),
-            queue_source: FakeQueueSource.new(["default"] => { ready: 0, failed: 0 }),
-            deploy_source: FakeDeploySource.new({})
-          )
-          far_future = Time.now + 3600
-          # Primed the way a real poll would leave it — @known_projects
-          # starts nil, so an unprimed first call would always look
-          # "changed" (nil != anything), which is correct for a real
-          # startup but not what cycle 1 below means to exercise.
-          collector.instance_variable_set(:@known_projects, Owlook::Config.new({ "projects" => [project_a] }).projects)
-
-          # Cycle 1: only project_a known yet, and nothing says queues are
-          # due — next_queue_check should carry through unchanged.
-          next_check = collector.send(:run_one_cycle, queue_interval: 60, next_queue_check: far_future)
-
-          assert_equal far_future, next_check
-          queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }
-
-          assert_empty queue_rows
-
-          # Cycle 2: config now includes project_b too. Even with
-          # next_queue_check still an hour out, the new project's queues
-          # get checked this cycle, not on the old schedule.
-          next_check = collector.send(:run_one_cycle, queue_interval: 60, next_queue_check: far_future)
-
-          # Queues actually ran this cycle (proven below by project_b's
-          # row existing) instead of carrying the stale far-future value
-          # through untouched, the way cycle 1 did.
-          assert_operator next_check, :<, far_future
-          queue_rows = JSON.parse(File.read(state_path)).select { |e| e["kind"] == "queue" }
-
-          assert_includes queue_rows.map { |row| row["project"] }, "acme/gadgets"
-        end
       end
     end
   end

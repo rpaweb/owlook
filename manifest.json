@@ -4,7 +4,7 @@
   "name": "Owlook",
   "version": "0.1.0",
   "author": "Rafael Peña-Azar",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "description": "CI, deploy, and queue status for your Rails projects, in the bar.",
   "kinds": [
     "bar-widget"

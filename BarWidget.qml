@@ -1,16 +1,62 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
 // Bar entry point. Owns the pill and bar routing; Panel.qml (loaded
 // separately, same pattern as akitaonrails/ai-usagebar) owns reading the
-// state file and rendering the popup.
+// state file and rendering the popup. Also owns running the collector
+// itself now — no systemd unit, nothing to install or enable separately;
+// this Timer+Process is the whole scheduler. Same real pattern as
+// ssandys/galley's Controller.qml (Qt.resolvedUrl + Process), not
+// invented here — confirmed by reading that plugin's actual source.
 BarWidget {
   id: root
   moduleName: "owlook.status"
 
   readonly property var panelItem: panelLoader.item
+
+  // Qt.resolvedUrl resolves against *this file's* own location, so this
+  // finds the collector wherever the plugin actually got installed
+  // (omarchy plugin add clones the whole repo, collector/ included) —
+  // never a hardcoded dev-checkout path.
+  function pathFromUrl(url) {
+    var value = String(url || "")
+    if (value.indexOf("file://") === 0) return decodeURIComponent(value.substring(7))
+    return value
+  }
+
+  readonly property string collectorScript: root.pathFromUrl(Qt.resolvedUrl("collector/bin/owlook-collector"))
+
+  // 30s, not tuned per-kind like the old systemd daemon's separate CI/queue
+  // intervals — a single short-lived process re-launched from scratch each
+  // time has no in-memory state to carry a second cadence across
+  // invocations anyway, so one interval for everything is what's actually
+  // simpler here, not just a smaller number. A real full cycle (CI +
+  // queue + deploy, several projects) measured live at 33-41s — longer
+  // than this interval — so `collectorProcess.running` is checked before
+  // ever starting another one; a slow cycle just runs back-to-back with
+  // the next, never two at once stepping on the same state file.
+  Timer {
+    interval: 30000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: if (!collectorProcess.running) collectorProcess.running = true
+  }
+
+  Process {
+    id: collectorProcess
+    command: ["ruby", root.collectorScript]
+
+    stdout: StdioCollector {
+      onStreamFinished: if (text !== "") console.log("[owlook collector]", text)
+    }
+    stderr: StdioCollector {
+      onStreamFinished: if (text !== "") console.log("[owlook collector]", text)
+    }
+  }
 
   function toggle() {
     if (panelItem) panelItem.toggle()

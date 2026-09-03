@@ -1,8 +1,61 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "tmpdir"
 
 class Owlook::StoreTest < Minitest::Test
+  def test_load_returns_an_empty_store_when_the_file_does_not_exist
+    store = Owlook::Store.load("/nonexistent/owlook.json")
+
+    assert_empty store.snapshot
+  end
+
+  def test_load_returns_an_empty_store_when_the_file_is_not_valid_json
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "owlook.json")
+      File.write(path, "not json")
+
+      store = Owlook::Store.load(path)
+
+      assert_empty store.snapshot
+    end
+  end
+
+  def test_load_rehydrates_every_observation_from_a_real_written_state_file
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "owlook.json")
+      original = Owlook::Store.new
+      original.record(ci_observation(branch: "main", state: "success", timestamp: Time.at(100)))
+      original.record(deploy_observation(destination: "production", timestamp: Time.at(100)))
+      Owlook::StateWriter.new(path).write(original.snapshot)
+
+      loaded = Owlook::Store.load(path)
+
+      assert loaded.known?(ci_observation(branch: "main").key)
+      assert loaded.known?(deploy_observation(destination: "production").key)
+      assert_equal "success", loaded.current(ci_observation(branch: "main").key).state
+    end
+  end
+
+  # A record loaded from disk still has to win/lose by timestamp exactly
+  # like one recorded fresh — this is what actually prevents a "checking"
+  # placeholder from re-announcing itself every single cycle, the whole
+  # reason #load exists.
+  def test_a_freshly_recorded_observation_still_loses_to_a_newer_loaded_one
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "owlook.json")
+      original = Owlook::Store.new
+      original.record(ci_observation(branch: "main", state: "success", timestamp: Time.at(200)))
+      Owlook::StateWriter.new(path).write(original.snapshot)
+
+      loaded = Owlook::Store.load(path)
+      changed = loaded.record(ci_observation(branch: "main", state: "checking", timestamp: Time.at(0)))
+
+      refute changed
+      assert_equal "success", loaded.current(ci_observation(branch: "main").key).state
+    end
+  end
+
   def test_first_observation_for_a_key_is_recorded
     store = Owlook::Store.new
     changed = store.record(ci_observation(branch: "main", timestamp: Time.at(100)))

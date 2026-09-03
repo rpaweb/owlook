@@ -1,0 +1,43 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# One full poll cycle — CI, deploy, and queue checks for every configured
+# project — then exit. Invoked fresh every OWLOOK_POLL_INTERVAL seconds by
+# the widget's own Timer+Process (see BarWidget.qml), not a long-lived
+# daemon: no systemd unit, nothing to enable, the plugin owns the
+# schedule. Store.load rehydrates from the previous cycle's own state file
+# so a brand new process still knows what it already knew last time — see
+# Store.load's own comment for why that's not optional (without it, every
+# branch/destination would flash back to "checking" every single cycle).
+#
+# CI and queues/deploy both run every cycle now, one cadence for
+# everything (30s by default) — no more separate, slower queue interval.
+# A long-lived process could afford to let queues lag behind on their own
+# timer; re-launched fresh each time, there's no in-memory state to carry
+# a second cadence across invocations anyway, so simpler wins.
+
+require_relative "../lib/owlook"
+
+CONFIG_PATH = File.expand_path(ENV.fetch("OWLOOK_CONFIG", "~/.config/owlook/config.yml"))
+STATE_PATH = File.join(ENV.fetch("XDG_RUNTIME_DIR", "/tmp"), "owlook.json")
+
+def log(message)
+  warn "[owlook] #{Time.now.iso8601} #{message}"
+  $stderr.flush
+end
+
+client = Owlook::GithubClient.new(token: Owlook::GithubClient.resolve_token)
+config_loader = -> { Owlook::Config.load(CONFIG_PATH) }
+
+collector = Owlook::Collector.new(
+  config_loader: config_loader,
+  store: Owlook::Store.load(STATE_PATH),
+  writer: Owlook::StateWriter.new(STATE_PATH),
+  github_source: Owlook::Sources::GitHub.new(client: client),
+  logger: method(:log)
+)
+
+log("cycle starting: watching #{CONFIG_PATH} (#{config_loader.call.projects.size} project(s)) -> #{STATE_PATH}")
+collector.poll_ci_once
+collector.poll_queues_once
+log("cycle finished")

@@ -10,9 +10,10 @@ jobs:
   # ---------------------------------------------------------------------------
   # Test suite, run once per Ruby version — a compatibility matrix: the
   # same suite, confirming it passes the same way on every version the
-  # gemspec claims to support, not just whichever one this repo happens to
-  # be developed on. No Rails-version axis (unlike jet_ui) — owlook isn't
-  # a Rails engine, it watches Rails apps from outside.
+  # collector claims to support (collector/.ruby-version pins what this
+  # repo is actually developed on), not just whichever one this repo
+  # happens to be developed on. No Rails-version axis (unlike jet_ui) —
+  # owlook isn't a Rails engine, it watches Rails apps from outside.
   # ---------------------------------------------------------------------------
   compatibility:
     name: "Ruby ${{ matrix.ruby }} comp."
@@ -21,9 +22,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.2 is the gemspec's declared floor; 4.0 is what this repo is
-        # actually developed on. 3.3/3.4 cover what's realistically in
-        # between for anyone installing the gem.
+        # 3.2 is the floor collector/Gemfile targets; 4.0 is what this
+        # repo is actually developed on. 3.3/3.4 cover what's realistically
+        # in between for anyone running the collector directly.
         ruby: ["3.2", "3.3", "3.4", "4.0"]
 
     steps:
@@ -32,9 +33,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
+          working-directory: collector
           bundler-cache: true
 
       - name: Run tests
+        working-directory: collector
         run: bundle exec rake test
 
   # ---------------------------------------------------------------------------
@@ -50,9 +53,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "4.0"
+          working-directory: collector
           bundler-cache: true
 
       - name: Run RuboCop
+        working-directory: collector
         run: bundle exec rubocop --format github
 
   # ---------------------------------------------------------------------------
@@ -68,12 +73,15 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "4.0"
+          working-directory: collector
           bundler-cache: true
 
       - name: Update advisory database
+        working-directory: collector
         run: bundle exec bundler-audit update
 
       - name: Check for vulnerabilities
+        working-directory: collector
         run: bundle exec bundler-audit check
 
   # ---------------------------------------------------------------------------
@@ -100,17 +108,19 @@ jobs:
       - name: Scan Ruby and JavaScript
         run: |
           semgrep scan --config p/ruby --config p/javascript --config p/security-audit \
-            --error --metrics=off lib/ shell/plugins/status/Model.js
+            --error --metrics=off collector/lib/ Model.js
 
   # ---------------------------------------------------------------------------
-  # Gem build + real install smoke test — not just `gem build` (which
-  # wouldn't have caught the missing-executables bug we found and fixed:
-  # bin/* wasn't in spec.files, no spec.executables was declared). This
-  # builds the real package and installs it into an isolated GEM_HOME,
-  # confirming the commands people actually run land where expected.
+  # Manifest + collector smoke test — no gem to build anymore (the widget
+  # schedules its own vendored collector, see README's "How it runs"), so
+  # this checks the two things that actually matter for `omarchy plugin
+  # add` to work: a structurally valid manifest.json at the repo root, and
+  # a real end-to-end collector cycle (construction, zero-project poll,
+  # state write) running clean with no crash — not just `ruby -c` syntax
+  # checking, an actual invocation, same script a real install runs.
   # ---------------------------------------------------------------------------
-  build:
-    name: gem build + install smoke test
+  smoke:
+    name: manifest + collector smoke test
     runs-on: ubuntu-latest
 
     steps:
@@ -119,19 +129,24 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "4.0"
+          working-directory: collector
           bundler-cache: true
 
-      - name: Build gem
-        run: gem build owlook.gemspec
+      - name: Validate manifest.json structure
+        run: |
+          jq -e '.id and .entryPoints.barWidget' manifest.json > /dev/null
+          test -f "$(jq -r '.entryPoints.barWidget' manifest.json)"
+          echo "✓ manifest.json has an id, entryPoints.barWidget, and that file exists"
 
-      - name: Install into an isolated GEM_HOME
+      - name: Run a real collector cycle against an empty config
         run: |
           mkdir -p /tmp/owlook-smoke
-          gem install --local owlook-*.gem --install-dir /tmp/owlook-smoke --no-document --ignore-dependencies
-
-      - name: Confirm the executables actually landed
-        run: |
-          test -x /tmp/owlook-smoke/bin/owlook-collector
-          test -x /tmp/owlook-smoke/bin/owlook-github-status
-          test -x /tmp/owlook-smoke/bin/owlook-install-service
-          echo "✓ all three executables present"
+          echo "projects: []" > /tmp/owlook-smoke/config.yml
+          # No state file is expected here — StateWriter only ever writes
+          # when there's something to report, and zero projects means
+          # zero observations, which is correct, not a bug. The point of
+          # this step is just that the script boots and exits 0; real
+          # behavior with real projects is what the Minitest suite covers.
+          OWLOOK_CONFIG=/tmp/owlook-smoke/config.yml XDG_RUNTIME_DIR=/tmp/owlook-smoke GITHUB_TOKEN=smoke-test \
+            ruby collector/bin/owlook-collector
+          echo "✓ collector ran a full cycle with no crash"
