@@ -1,12 +1,14 @@
-# <img src="assets/owlook-icon.png" width="44" height="44" align="top" alt=""> Owlook
-
+# <img src="collector/assets/owlook-icon.png" width="44" height="44" align="top" alt=""> Owlook
+[![Omarchy](https://img.shields.io/badge/omarchy-4.x-9ECE6A?logo=omarchy&logoColor=white)](https://omarchy.org/)
+[![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.2-CC342D)](collector/.ruby-version)
 [![Checks](https://img.shields.io/github/actions/workflow/status/rpaweb/owlook/ci.yml?label=checks&logo=github)](https://github.com/rpaweb/owlook/actions/workflows/ci.yml)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
-[![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.2-CC342D)](collector/.ruby-version)
+[![Downloads](https://img.shields.io/github/downloads/rpaweb/owlook/total)](https://github.com/rpaweb/owlook/releases)
+[![Stars](https://img.shields.io/github/stars/rpaweb/owlook?style=social)](https://github.com/rpaweb/owlook/stargazers)
 
-CI, deploy, and background-job status for your Rails projects, surfaced as a
-bar widget in Omarchy (Quattro) — instead of alt-tabbing between GitHub, a
-terminal, and a queue dashboard.
+CI, deploy, and queue status for your projects, surfaced as a bar widget in
+Omarchy (Quattro) — instead of alt-tabbing between a CI dashboard, a
+terminal, and a queue viewer.
 
 ## Installation
 
@@ -14,9 +16,10 @@ terminal, and a queue dashboard.
 omarchy plugin add https://github.com/rpaweb/owlook --enable
 ```
 
-One command. No systemd unit, no gem to install separately — the widget
-runs its own collector in the background (see [How it runs](#how-it-runs)
-below), so `omarchy plugin add` is the whole install.
+One command. No systemd unit, no extra service to install separately —
+the widget runs its own collector in the background (see
+[How it runs](#how-it-runs) below), so `omarchy plugin add` is the
+whole install.
 
 Installing/enabling a plugin runs arbitrary code inside your long-lived
 shell process — read it first, same as Omarchy's own warning for
@@ -28,10 +31,10 @@ third-party plugins.
 omarchy plugin remove owlook.status
 ```
 
-That's the whole removal — there's no systemd unit or gem to separately
-stop or uninstall (see [How it runs](#how-it-runs)): the collector only
-ever runs as a child of the widget itself, so removing the plugin takes
-it with it.
+That's the whole removal — there's no systemd unit or extra service to
+separately stop or uninstall (see [How it runs](#how-it-runs)): the
+collector only ever runs as a child of the widget itself, so removing
+the plugin takes it with it.
 
 ## What it tracks
 
