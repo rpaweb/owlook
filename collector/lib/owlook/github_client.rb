@@ -20,6 +20,7 @@ module Owlook
     end
 
     API_BASE = "https://api.github.com"
+    MAX_REDIRECTS = 5
 
     # env and gh_auth_token are injectable so tests never shell out to the
     # real `gh` CLI or depend on the machine's actual environment.
@@ -33,22 +34,52 @@ module Owlook
       raise MissingTokenError
     end
 
-    def initialize(token:)
+    # api_base is injectable so tests can point this at a real local fake
+    # server instead of the live API — never overridden outside tests.
+    def initialize(token:, api_base: API_BASE)
       @token = token
+      @api_base = api_base
     end
 
     def get(path)
-      uri = URI("#{API_BASE}#{path}")
+      fetch(URI("#{@api_base}#{path}"), path)
+    end
+
+    private
+
+    # A repo renamed on GitHub still answers requests against its old name
+    # with a real 301 to the canonical /repositories/{id}/... URL — live
+    # confirmed against rpaweb/skeletor-mailing-list (renamed to
+    # rpaweb/pragon-landing, local git remote never updated). Following it
+    # here means a stale local remote degrades to "reads a bit slower",
+    # not "this project's CI never resolves past a placeholder 'checking'
+    # row" — the actual live symptom this fixes. Bounded so a redirect
+    # loop fails loudly instead of hanging.
+    def fetch(uri, original_path, redirects_left: MAX_REDIRECTS)
+      response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
+        http.request(build_request(uri))
+      end
+
+      case response
+      when Net::HTTPSuccess
+        JSON.parse(response.body)
+      when Net::HTTPRedirection
+        location = response["location"]
+        raise RequestError.new(original_path, response) if location.nil? || redirects_left.zero?
+
+        fetch(URI(location), original_path, redirects_left: redirects_left - 1)
+      else
+        raise RequestError.new(original_path, response)
+      end
+    end
+
+    def build_request(uri)
       request = Net::HTTP::Get.new(uri)
       request["Authorization"] = "Bearer #{@token}"
       request["Accept"] = "application/vnd.github+json"
       request["X-GitHub-Api-Version"] = "2022-11-28"
       request["User-Agent"] = "owlook"
-
-      response = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |http| http.request(request) }
-      raise RequestError.new(path, response) unless response.is_a?(Net::HTTPSuccess)
-
-      JSON.parse(response.body)
+      request
     end
   end
 end
