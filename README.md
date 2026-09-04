@@ -115,6 +115,9 @@ what your terminal uses:
 SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/gnupg/S.gpg-agent.ssh ssh-add ~/.ssh/that_key
 ```
 
+If the key has a passphrase, a pinentry prompt pops up asking for it — that's
+gpg-agent, not owlook, and only needs to happen once per login session.
+
 No restart needed — the next cycle picks it up.
 
 ## Development
