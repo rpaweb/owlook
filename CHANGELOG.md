@@ -7,6 +7,15 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-06
+
+### Fixed
+
+- CI/deploy status no longer gets stuck on a placeholder "checking" state
+  forever for a project whose GitHub repository was renamed — the
+  collector now follows the redirect GitHub's API returns for the old
+  name instead of treating it as a hard failure.
+
 ## [0.1.0] - 2026-09-04
 
 One `omarchy plugin add` install, no systemd unit, no extra service to
