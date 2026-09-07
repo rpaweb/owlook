@@ -3,7 +3,6 @@
 [![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.2-CC342D)](collector/.ruby-version)
 [![Checks](https://img.shields.io/github/actions/workflow/status/rpaweb/owlook/ci.yml?label=checks&logo=github)](https://github.com/rpaweb/owlook/actions/workflows/ci.yml)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/rpaweb/owlook/total)](https://github.com/rpaweb/owlook/releases)
 [![Stars](https://img.shields.io/github/stars/rpaweb/owlook?style=social)](https://github.com/rpaweb/owlook/stargazers)
 
 CI, deploy, and queue status for your projects, surfaced as a bar widget in
