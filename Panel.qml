@@ -902,8 +902,17 @@ Panel {
 
         Text {
           anchors.verticalCenter: parent.verticalCenter
-          textFormat: Text.StyledText
-          text: "<b>" + ciRow.modelData.branch + "</b>"
+          // PlainText, not StyledText: modelData.branch is GitHub's real
+          // head_branch, an attacker-controllable string (anyone who can
+          // push a branch to the repo names it) — StyledText would let a
+          // branch named e.g. "<font color='green'>fake pass</font>"
+          // render as markup instead of literal text, spoofing the CI
+          // state shown here. font.bold replaces the old "<b>...</b>"
+          // wrapping for the same visual weight without interpreting
+          // anything in the text itself.
+          textFormat: Text.PlainText
+          text: ciRow.modelData.branch
+          font.bold: true
           color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
