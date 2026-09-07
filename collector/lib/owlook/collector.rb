@@ -104,12 +104,14 @@ module Owlook
 
     private
 
-    # A config edit caught mid-write (or briefly invalid YAML) shouldn't
+    # A config edit caught mid-write (briefly invalid YAML) shouldn't
     # crash the loop — skip this one cycle's projects and try again next
-    # time; the file is almost always valid by then.
+    # time; the file is almost always valid by then. A missing file is no
+    # longer possible here — Config.load creates one instead of raising —
+    # but InvalidFileError is real and stays.
     def projects
       @config_loader.call.projects
-    rescue Config::MissingFileError, Config::InvalidFileError => e
+    rescue Config::InvalidFileError => e
       log("config reload failed, skipping this cycle: #{e.message}")
       []
     end

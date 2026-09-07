@@ -85,7 +85,8 @@ to keep it running independently of the shell.
 
 ## Configuration
 
-`~/.config/owlook/config.yml`:
+`~/.config/owlook/config.yml`, created for you on first run (with the
+format commented inline) if it doesn't exist yet:
 
 ```yaml
 projects:
