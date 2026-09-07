@@ -89,6 +89,28 @@ class Owlook::Sources::DeployTest < Minitest::Test
     refute_includes shell.last_command, "--destination"
   end
 
+  # Same reasoning as Sources::Queue's identical pair of tests: a real
+  # BoundedCommand timeout/output-cap has to surface as this class's own
+  # CommandFailedError, not a bare BoundedCommand error, or
+  # Collector#poll_destination_deploy's specific rescue never catches it
+  # and the destination is stuck on "checking" forever instead of
+  # showing "unreachable".
+  def test_default_shell_raises_command_failed_error_not_a_bare_bounded_command_error_on_timeout
+    error = assert_raises(Owlook::Sources::Deploy::CommandFailedError) do
+      Owlook::Sources::Deploy::DEFAULT_SHELL.call(["sh", "-c", "sleep 30"], chdir: Dir.pwd, timeout: 0.3)
+    end
+    assert_includes error.message, "timed out"
+  end
+
+  def test_default_shell_raises_command_failed_error_not_a_bare_bounded_command_error_on_output_cap
+    error = assert_raises(Owlook::Sources::Deploy::CommandFailedError) do
+      Owlook::Sources::Deploy::DEFAULT_SHELL.call(
+        ["sh", "-c", "yes | head -c 100000"], chdir: Dir.pwd, max_bytes: 1_000
+      )
+    end
+    assert_includes error.message, "exceeded"
+  end
+
   class FakeShell
     attr_reader :last_command, :last_chdir
 

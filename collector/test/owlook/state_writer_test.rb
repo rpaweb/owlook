@@ -43,7 +43,37 @@ class Owlook::StateWriterTest < Minitest::Test
     with_path do |path|
       Owlook::StateWriter.new(path).write([{ project: "acme" }])
 
-      refute_path_exists "#{path}.tmp"
+      assert_empty Dir.glob("#{path}.tmp*")
+    end
+  end
+
+  def test_writes_the_file_with_0600_not_a_world_or_group_readable_mode
+    with_path do |path|
+      Owlook::StateWriter.new(path).write([{ project: "acme" }])
+
+      assert_equal 0o600, File.stat(path).mode & 0o777
+    end
+  end
+
+  def test_refuses_to_write_through_a_symlink_planted_at_the_target_path
+    with_path do |path|
+      victim = "#{path}.victim"
+      File.write(victim, "untouched")
+      File.symlink(victim, path)
+
+      # A pre-existing symlink at the target path also means the
+      # unchanged? check can't safely read it back (SafeFile refuses to
+      # follow it) — this exercises both that fallback and the actual
+      # write in one real scenario, without mocking SafeFile.
+      wrote = Owlook::StateWriter.new(path).write([{ project: "acme" }])
+
+      assert wrote
+      # The rename at the end of write_atomically replaces the symlink
+      # itself with the real state file — it never opens (and so never
+      # writes through) the symlink's target, which is the actual attack
+      # this guards against (see create_tmp_file's O_NOFOLLOW).
+      refute_predicate File.lstat(path), :symlink?, "the symlink should have been replaced, not written through"
+      assert_equal "untouched", File.read(victim)
     end
   end
 

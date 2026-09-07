@@ -19,7 +19,13 @@
 require_relative "../lib/owlook"
 
 CONFIG_PATH = File.expand_path(ENV.fetch("OWLOOK_CONFIG", "~/.config/owlook/config.yml"))
-STATE_PATH = File.join(ENV.fetch("XDG_RUNTIME_DIR", "/tmp"), "owlook.json")
+# RuntimeDir.resolve, not a raw ENV.fetch with a "/tmp" fallback: /tmp is
+# world-writable and shared by every user on the machine, so a fixed
+# file name there is a predictable target for another local user to
+# plant a symlink at (see StateWriter's own comment). This verifies the
+# directory is genuinely ours before the state file ever gets written
+# into it.
+STATE_PATH = File.join(Owlook::RuntimeDir.resolve, "owlook.json")
 
 # A settings toggle or a config.yml edit (see BarWidget.qml's
 # startCollectorCycle) kills a cycle already in progress instead of

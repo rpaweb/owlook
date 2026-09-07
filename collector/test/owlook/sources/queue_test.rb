@@ -183,6 +183,32 @@ class Owlook::Sources::QueueTest < Minitest::Test
     assert_nil sock
   end
 
+  # DEFAULT_SHELL itself, not an injected fake — confirming a real
+  # BoundedCommand timeout/output-cap surfaces as this class's own
+  # CommandFailedError, not a bare BoundedCommand error. That distinction
+  # matters live: Collector#poll_destination_queue only rescues
+  # Queue::CommandFailedError to record the "unreachable" state the
+  # panel actually shows — anything else escapes to the generic
+  # per-destination rescue that just skips the cycle, leaving the
+  # destination on its "checking" placeholder forever, exactly the
+  # silent-stuck-spinner bug BoundedCommand's timeout exists to prevent
+  # in the first place, just moved one layer up.
+  def test_default_shell_raises_command_failed_error_not_a_bare_bounded_command_error_on_timeout
+    error = assert_raises(Owlook::Sources::Queue::CommandFailedError) do
+      Owlook::Sources::Queue::DEFAULT_SHELL.call(["sh", "-c", "sleep 30"], chdir: Dir.pwd, timeout: 0.3)
+    end
+    assert_includes error.message, "timed out"
+  end
+
+  def test_default_shell_raises_command_failed_error_not_a_bare_bounded_command_error_on_output_cap
+    error = assert_raises(Owlook::Sources::Queue::CommandFailedError) do
+      Owlook::Sources::Queue::DEFAULT_SHELL.call(
+        ["sh", "-c", "yes | head -c 100000"], chdir: Dir.pwd, max_bytes: 1_000
+      )
+    end
+    assert_includes error.message, "exceeded"
+  end
+
   class FakeShell
     attr_reader :last_command, :last_chdir
 

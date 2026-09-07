@@ -76,9 +76,16 @@ module Owlook
       nil
     end
 
+    # BoundedCommand, not a raw Open3 call: unlike the other git
+    # subcommands here (merge-base, rev-list, for-each-ref — all pure
+    # local repo introspection), fetch actually talks to a remote this
+    # process doesn't control, so it gets the same timeout/output-cap
+    # treatment as the SSH-based sources. A failed or timed-out fetch
+    # still doesn't raise — same as everywhere else in this method,
+    # whatever's already on disk is used as-is.
     def fetch
-      Open3.capture2e("git", "fetch", "--quiet", "--tags", chdir: @path)
-    rescue Errno::ENOENT
+      BoundedCommand.run("git", "fetch", "--quiet", "--tags", chdir: @path)
+    rescue Errno::ENOENT, BoundedCommand::TimeoutError, BoundedCommand::OutputTooLargeError
       nil
     end
 

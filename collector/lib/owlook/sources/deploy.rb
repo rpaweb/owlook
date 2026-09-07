@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "open3"
 require_relative "ssh_agent"
 
 module Owlook
@@ -17,8 +16,13 @@ module Owlook
     # implementation.
     class Deploy
       class CommandFailedError < StandardError
+        # status is nil for a BoundedCommand timeout/output-cap hit — see
+        # Sources::Queue::CommandFailedError's identical comment for why
+        # this still needs to be *this* error class specifically, not a
+        # plain StandardError.
         def initialize(command, status, stderr)
-          super("kamal app version failed (exit #{status.exitstatus}): #{command.join(' ')}\n#{stderr}")
+          reason = status ? "exit #{status.exitstatus}" : "timed out or produced too much output"
+          super("kamal app version failed (#{reason}): #{command.join(' ')}\n#{stderr}")
         end
       end
 
@@ -28,15 +32,27 @@ module Owlook
         end
       end
 
-      DEFAULT_SHELL = lambda do |command, chdir:|
+      # BoundedCommand, not a raw Open3.capture3 — same reasoning as
+      # Sources::Queue's DEFAULT_SHELL: this is a network call to a
+      # destination this process doesn't control, and Open3.capture3
+      # neither times out nor caps how much it buffers.
+      # timeout/max_bytes default to BoundedCommand's own — exposed here
+      # only so a test can force a fast timeout/output-cap hit without
+      # waiting out the real 30s default.
+      DEFAULT_SHELL = lambda do |command, chdir:, timeout: BoundedCommand::DEFAULT_TIMEOUT,
+                                  max_bytes: BoundedCommand::DEFAULT_MAX_BYTES|
         env = {}
         sock = SSHAgent.resolve_auth_sock
         env["SSH_AUTH_SOCK"] = sock if sock
 
-        stdout, stderr, status = Open3.capture3(env, *command, chdir: chdir)
-        raise CommandFailedError.new(command, status, stderr) unless status.success?
+        begin
+          result = BoundedCommand.run(*command, chdir: chdir, env: env, timeout: timeout, max_bytes: max_bytes)
+        rescue BoundedCommand::TimeoutError, BoundedCommand::OutputTooLargeError => e
+          raise CommandFailedError.new(command, nil, e.message)
+        end
+        raise CommandFailedError.new(command, result.status, result.stderr) unless result.status.success?
 
-        stdout
+        result.stdout
       end
 
       def initialize(shell: DEFAULT_SHELL)

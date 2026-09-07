@@ -21,6 +21,19 @@ class Owlook::StoreTest < Minitest::Test
     end
   end
 
+  def test_load_returns_an_empty_store_instead_of_following_a_symlinked_state_file
+    Dir.mktmpdir do |dir|
+      victim = File.join(dir, "victim.json")
+      File.write(victim, JSON.generate([{ project: "should-not-load", kind: "ci", branch: "main", state: "success" }]))
+      link = File.join(dir, "owlook.json")
+      File.symlink(victim, link)
+
+      store = Owlook::Store.load(link)
+
+      assert_empty store.snapshot
+    end
+  end
+
   def test_load_rehydrates_every_observation_from_a_real_written_state_file
     Dir.mktmpdir do |dir|
       path = File.join(dir, "owlook.json")

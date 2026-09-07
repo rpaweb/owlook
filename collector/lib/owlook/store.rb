@@ -23,14 +23,14 @@ module Owlook
     # written yet".
     def self.load(path)
       store = new
-      raw = JSON.parse(File.read(path), symbolize_names: true)
+      raw = JSON.parse(SafeFile.read(path), symbolize_names: true)
       raw.each do |entry|
         entry[:timestamp] = Time.parse(entry[:timestamp]) if entry[:timestamp]
         entry[:observed_at] = Time.parse(entry[:observed_at]) if entry[:observed_at]
         store.record(Observation.new(**entry))
       end
       store
-    rescue Errno::ENOENT, JSON::ParserError
+    rescue Errno::ENOENT, JSON::ParserError, SafeFile::UnsafeFileError
       store
     end
 

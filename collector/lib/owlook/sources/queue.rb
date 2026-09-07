@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "open3"
 require "json"
 require "shellwords"
 require_relative "ssh_agent"
@@ -19,8 +18,18 @@ module Owlook
     # SSH implementation.
     class Queue
       class CommandFailedError < StandardError
+        # status is nil for a BoundedCommand timeout/output-cap hit —
+        # there's no real exit status for a process this killed rather
+        # than let finish. Collector's rescue Queue::CommandFailedError
+        # (not a plain StandardError) is what turns any of this into the
+        # "unreachable" state the panel actually shows; a distinct,
+        # uncaught error class here would instead leave the destination
+        # on its "checking" placeholder forever, silently — the same bug
+        # class BoundedCommand's own timeout exists to prevent, just
+        # moved one layer up.
         def initialize(command, status, stderr)
-          super("kamal app exec failed (exit #{status.exitstatus}): #{command.join(' ')}\n#{stderr}")
+          reason = status ? "exit #{status.exitstatus}" : "timed out or produced too much output"
+          super("kamal app exec failed (#{reason}): #{command.join(' ')}\n#{stderr}")
         end
       end
 
@@ -48,15 +57,28 @@ module Owlook
         puts result.to_json
       RUBY
 
-      DEFAULT_SHELL = lambda do |command, chdir:|
+      # BoundedCommand, not a raw Open3.capture3: this runs over SSH
+      # against a destination this process doesn't control, and
+      # Open3.capture3 has no timeout and no cap on how much it'll
+      # buffer — a hostile or merely hung target wedges the whole
+      # collector cycle, or exhausts memory reading its output.
+      # timeout/max_bytes default to BoundedCommand's own — exposed here
+      # only so a test can force a fast timeout/output-cap hit without
+      # waiting out the real 30s default.
+      DEFAULT_SHELL = lambda do |command, chdir:, timeout: BoundedCommand::DEFAULT_TIMEOUT,
+                                  max_bytes: BoundedCommand::DEFAULT_MAX_BYTES|
         env = {}
         sock = resolve_ssh_auth_sock
         env["SSH_AUTH_SOCK"] = sock if sock
 
-        stdout, stderr, status = Open3.capture3(env, *command, chdir: chdir)
-        raise CommandFailedError.new(command, status, stderr) unless status.success?
+        begin
+          result = BoundedCommand.run(*command, chdir: chdir, env: env, timeout: timeout, max_bytes: max_bytes)
+        rescue BoundedCommand::TimeoutError, BoundedCommand::OutputTooLargeError => e
+          raise CommandFailedError.new(command, nil, e.message)
+        end
+        raise CommandFailedError.new(command, result.status, result.stderr) unless result.status.success?
 
-        stdout
+        result.stdout
       end
 
       # Delegates to SSHAgent — Sources::Deploy needs the identical
