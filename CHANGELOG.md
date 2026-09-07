@@ -7,6 +7,31 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-07
+
+### Security
+
+- The bar panel rendered a GitHub branch name as rich text instead of
+  plain text — a branch named to include markup could spoof the
+  CI/deploy status displayed for it. It now renders as plain text.
+- The collector's state file could fall back to the shared,
+  world-writable `/tmp` and used a predictable temp-file name without
+  verifying ownership or refusing to follow symlinks — another local
+  user could plant a symlink there to have the collector overwrite an
+  arbitrary file, or spoof what's displayed. It now requires (creating
+  if needed) a verified, user-owned runtime directory, and writes
+  atomically with `O_EXCL`/`O_NOFOLLOW` and `0600` permissions.
+- SSH/Kamal/git calls to a remote destination had no timeout or output
+  cap — a hung or hostile endpoint could stall a poll cycle indefinitely
+  or exhaust memory. These now run under a hard wall-clock deadline
+  (30s) with a bounded output size (1MB/stream), killing the whole
+  process group (not just the direct child) if either limit is hit — a
+  destination that trips this shows the same "unreachable" state as any
+  other failed check, not a stuck "checking" placeholder.
+- Every GitHub Action across CI and the release workflow referenced a
+  third party by mutable tag instead of a pinned commit — all of them
+  are now pinned to a reviewed, full-length SHA.
+
 ## [0.1.1] - 2026-09-06
 
 ### Fixed
