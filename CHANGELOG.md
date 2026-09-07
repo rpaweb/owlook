@@ -7,6 +7,20 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-07
+
+### Fixed
+
+- A workflow run with no explicit `run-name:` set could show its CI row
+  as several lines of raw commit text instead of a short label — GitHub
+  defaults an unnamed run's name to the triggering commit message,
+  which can span multiple lines. Only the first line is used now, and
+  it renders as plain text rather than the implicit rich-text default.
+- Installing the plugin with no `config.yml` yet crashed the collector
+  outright, unguarded, with no indication of what to create. It now
+  writes one for you on first run, with the expected format commented
+  inline, and starts from zero tracked projects.
+
 ## [0.1.2] - 2026-09-07
 
 ### Security
