@@ -63,6 +63,29 @@ class Owlook::Sources::GitHubTest < Minitest::Test
     assert_equal({ name: "Run tests", number: 2, status: "completed", conclusion: "failure" }, job[:steps][1])
   end
 
+  # Real GitHub behavior, confirmed against its own docs: a workflow with
+  # no explicit `run-name:` gets one defaulted from the triggering event —
+  # for a push, that's the commit message verbatim, which can be several
+  # lines long (a squash-merge body is a common real shape). Reproduced
+  # live against a real repo whose CI row rendered several lines of raw
+  # commit text instead of a short label.
+  def test_latest_run_takes_only_the_first_line_of_a_multiline_run_name
+    multiline_response = {
+      "workflow_runs" => [RUNS_RESPONSE["workflow_runs"].first.merge(
+        "name" => "[staging] CI/CD: Harden the panel\n\n- Relation#update_all ends with reset\n- An expense moved"
+      )]
+    }
+    client = FakeClient.new(
+      "/repos/acme/widgets/actions/runs?branch=quattro&per_page=1" => multiline_response,
+      "/repos/acme/widgets/actions/runs/32993198471/jobs" => JOBS_RESPONSE
+    )
+    source = Owlook::Sources::GitHub.new(client: client)
+
+    run = source.latest_run(owner: "acme", repo: "widgets", branch: "quattro")
+
+    assert_equal "[staging] CI/CD: Harden the panel", run[:name]
+  end
+
   def test_branches_with_runs_returns_distinct_branch_names
     client = FakeClient.new(
       "/repos/acme/widgets/actions/runs?per_page=100" => { "workflow_runs" => [

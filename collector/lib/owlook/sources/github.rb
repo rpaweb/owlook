@@ -43,7 +43,17 @@ module Owlook
           # have this endpoint's "latest run" flip between them from one
           # poll to the next, and without this the row never says which
           # one it's actually showing.
-          name: run["name"],
+          #
+          # First line only, not the raw field: GitHub defaults a run's
+          # `name` to the *triggering commit's message* whenever the
+          # workflow itself doesn't set an explicit `run-name:` (confirmed
+          # against GitHub's own docs) — a real repo hit this live with a
+          # multi-line squash-commit body, which rendered as several lines
+          # of raw commit text overflowing the panel instead of a short
+          # label. A workflow that *does* set `run-name:` is already one
+          # line in practice, so this changes nothing for the case the
+          # comment above actually describes.
+          name: run["name"] && run["name"].lines.first.chomp,
           jobs: jobs.map { |job| parse_job(job) }
         }
       end

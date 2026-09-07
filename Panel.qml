@@ -960,6 +960,12 @@ Panel {
         Text {
           visible: ciRow.workflowLabel !== ""
           anchors.verticalCenter: parent.verticalCenter
+          // PlainText, not the implicit AutoText default — same reasoning
+          // as the branch Text above: this can be GitHub's own
+          // commit-message fallback for an unnamed run (see
+          // Sources::GitHub#latest_run's comment), and a commit message is
+          // just as attacker-controllable as a branch name.
+          textFormat: Text.PlainText
           text: ciRow.workflowLabel
           color: ciRow.bad ? root.urgent : Qt.darker(root.barForeground, 1.15)
           font.family: Style.font.family
