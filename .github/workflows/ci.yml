@@ -90,6 +90,13 @@ jobs:
   # would cover the same ground but needs paid GitHub Advanced Security on
   # a private repo (confirmed against GitHub's own docs) — this doesn't,
   # verified by actually running it against this repo's real code first.
+  #
+  # Run via the official Docker image pinned by digest, not `pip install
+  # semgrep` — a bare pip install resolves whatever the latest release
+  # happens to be at the moment CI runs, no different in kind from an
+  # unpinned Action tag (the exact thing every other job here is pinned
+  # against). A digest is a content hash, not a mutable pointer like a tag
+  # — semgrep/semgrep:1.176.1 always resolves to this same image.
   # ---------------------------------------------------------------------------
   semgrep:
     name: Semgrep
@@ -98,17 +105,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Semgrep
-        run: pip install semgrep
-
       - name: Scan Ruby and JavaScript
         run: |
-          semgrep scan --config p/ruby --config p/javascript --config p/security-audit \
-            --error --metrics=off collector/lib/ Model.js
+          docker run --rm -v "$PWD:/src" -w /src \
+            semgrep/semgrep@sha256:34ab619bf1391a24bfda3f05debd0d8a6ce3093c2d5f9d39cfc00f83c1397823 \
+            semgrep scan --config p/ruby --config p/javascript --config p/security-audit \
+              --error --metrics=off collector/lib/ Model.js
 
   # ---------------------------------------------------------------------------
   # Manifest + collector smoke test — no gem to build anymore (the widget
