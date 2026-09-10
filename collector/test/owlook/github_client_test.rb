@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "support/fake_http_server"
+require "tmpdir"
 
 class Owlook::GithubClientTest < Minitest::Test
   def test_resolve_token_prefers_the_env_var
@@ -60,5 +61,79 @@ class Owlook::GithubClientTest < Minitest::Test
 
     assert_raises(Owlook::GithubClient::RequestError) { client.get("/repos/x/y") }
     server.stop
+  end
+
+  # Confirmed live against the real GitHub API before writing this: a 304
+  # Not Modified response, sent because If-None-Match matched, does not
+  # consume any rate-limit quota at all — this whole mechanism exists
+  # because of that. A real user's `gh` CLI got locked out after leaving
+  # "all branches" on: with ~18 branches, that's ~4,440 calls/hour from a
+  # single project, no caching at all — this is the fix for it.
+  def test_get_sends_if_none_match_when_the_cache_has_an_etag_for_this_url
+    with_cache do |cache|
+      server = Owlook::FakeHttpServer.new
+      server.respond_with(200, headers: { "ETag" => '"abc123"' }, body: "{}").start
+      cache.store("#{server.base_url}/repos/acme/widgets/actions/runs", etag: '"abc123"', body: "{}")
+
+      client = Owlook::GithubClient.new(token: "fake-token", api_base: server.base_url, cache: cache)
+      client.get("/repos/acme/widgets/actions/runs")
+
+      server.stop
+
+      assert_equal '"abc123"', server.received_requests.first[:headers]["if-none-match"]
+    end
+  end
+
+  def test_get_stores_the_etag_and_body_from_a_fresh_200_response
+    with_cache do |cache|
+      server = Owlook::FakeHttpServer.new
+      server.respond_with(200, headers: { "ETag" => '"new-etag"' }, body: '{"total_count":1}').start
+      url = "#{server.base_url}/repos/acme/widgets/actions/runs"
+
+      client = Owlook::GithubClient.new(token: "fake-token", api_base: server.base_url, cache: cache)
+      result = client.get("/repos/acme/widgets/actions/runs")
+
+      server.stop
+
+      assert_equal({ "total_count" => 1 }, result)
+      assert_equal '"new-etag"', cache.etag_for(url)
+      assert_equal '{"total_count":1}', cache.body_for(url)
+    end
+  end
+
+  def test_get_returns_the_cached_body_on_a_304_instead_of_the_empty_response
+    with_cache do |cache|
+      server = Owlook::FakeHttpServer.new
+      server.respond_with(304).start
+      url = "#{server.base_url}/repos/acme/widgets/actions/runs"
+      cache.store(url, etag: '"abc123"', body: '{"total_count":0,"workflow_runs":[]}')
+
+      client = Owlook::GithubClient.new(token: "fake-token", api_base: server.base_url, cache: cache)
+      result = client.get("/repos/acme/widgets/actions/runs")
+
+      server.stop
+
+      assert_equal({ "total_count" => 0, "workflow_runs" => [] }, result)
+    end
+  end
+
+  def test_get_raises_on_a_304_with_nothing_cached_for_that_url
+    with_cache do |cache|
+      server = Owlook::FakeHttpServer.new
+      server.respond_with(304).start
+
+      client = Owlook::GithubClient.new(token: "fake-token", api_base: server.base_url, cache: cache)
+
+      assert_raises(Owlook::GithubClient::UnexpectedNotModifiedError) { client.get("/repos/acme/widgets/actions/runs") }
+      server.stop
+    end
+  end
+
+  private
+
+  def with_cache
+    Dir.mktmpdir do |dir|
+      yield Owlook::GithubCache.new(File.join(dir, "github_cache.json"))
+    end
   end
 end

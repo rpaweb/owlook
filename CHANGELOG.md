@@ -7,6 +7,15 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
 
 ## [Unreleased]
 
+### Fixed
+
+- "All branches" mode with no caching could burn through a large share
+  of GitHub's hourly API rate limit on its own — a real user's `gh` CLI
+  got locked out after leaving it on. GitHub responses are now cached
+  and revalidated with conditional requests; a `304 Not Modified`
+  response (the common case — nothing changed since the last poll)
+  costs no quota at all, confirmed live against the real API.
+
 ## [0.1.3] - 2026-09-07
 
 ### Fixed

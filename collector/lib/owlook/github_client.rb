@@ -19,6 +19,16 @@ module Owlook
       end
     end
 
+    # A 304 only means anything if this client is the one holding what it
+    # matched — GithubCache returning nothing for this exact URL means the
+    # entry was evicted, never existed, or the ETag came from a different
+    # cache entirely. Nothing to safely return in that case.
+    class UnexpectedNotModifiedError < StandardError
+      def initialize(path)
+        super("GitHub responded 304 Not Modified for #{path}, but nothing is cached for it")
+      end
+    end
+
     API_BASE = "https://api.github.com"
     MAX_REDIRECTS = 5
 
@@ -36,9 +46,14 @@ module Owlook
 
     # api_base is injectable so tests can point this at a real local fake
     # server instead of the live API — never overridden outside tests.
-    def initialize(token:, api_base: API_BASE)
+    # cache defaults to nil (no conditional requests) rather than a hidden
+    # default instance — bin/owlook-collector passes its own explicitly;
+    # nil keeps existing tests that construct a bare client working
+    # unchanged.
+    def initialize(token:, api_base: API_BASE, cache: nil)
       @token = token
       @api_base = api_base
+      @cache = cache
     end
 
     def get(path)
@@ -61,7 +76,10 @@ module Owlook
       end
 
       case response
+      when Net::HTTPNotModified
+        cached_body(uri, original_path)
       when Net::HTTPSuccess
+        cache_response(uri, response)
         JSON.parse(response.body)
       when Net::HTTPRedirection
         location = response["location"]
@@ -73,12 +91,35 @@ module Owlook
       end
     end
 
+    # A cache miss on a 304 (the entry this ETag matched got evicted or
+    # never existed) can't be trusted as "nothing changed" — there's
+    # nothing to fall back to except treating it as the request failure
+    # it effectively is.
+    def cached_body(uri, original_path)
+      body = @cache&.body_for(uri.to_s)
+      raise UnexpectedNotModifiedError, original_path unless body
+
+      JSON.parse(body)
+    end
+
+    # response.body sometimes comes back tagged ASCII-8BIT/BINARY rather
+    # than UTF-8 even though GitHub's JSON always is UTF-8 (confirmed live:
+    # Net::HTTP doesn't reliably honor the charset in a JSON Content-Type
+    # the way it does for text/*) — JSON.generate on the cached copy later
+    # warns about this today and is a hard error starting json 3.0.
+    def cache_response(uri, response)
+      etag = response["etag"]
+      @cache&.store(uri.to_s, etag: etag, body: response.body.dup.force_encoding(Encoding::UTF_8)) if etag
+    end
+
     def build_request(uri)
       request = Net::HTTP::Get.new(uri)
       request["Authorization"] = "Bearer #{@token}"
       request["Accept"] = "application/vnd.github+json"
       request["X-GitHub-Api-Version"] = "2022-11-28"
       request["User-Agent"] = "owlook"
+      etag = @cache&.etag_for(uri.to_s)
+      request["If-None-Match"] = etag if etag
       request
     end
   end
