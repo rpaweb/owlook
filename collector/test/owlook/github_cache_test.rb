@@ -143,6 +143,30 @@ class Owlook::GithubCacheTest < Minitest::Test
     end
   end
 
+  # A real hazard, not a theoretical one: Collector polls branches
+  # concurrently (up to MAX_CONCURRENT_REQUESTS threads), and every thread
+  # shares one GithubCache through one GithubClient. This doesn't prove a
+  # race is impossible, but it's the same kind of concurrent-mutation
+  # smoke test this codebase already uses for Collector's own concurrency
+  # caps — many threads hammering store/etag_for on distinct keys should
+  # never raise and should never lose or corrupt an entry.
+  def test_concurrent_store_and_read_from_many_threads_does_not_corrupt_state
+    with_path do |path|
+      cache = Owlook::GithubCache.new(path)
+      urls = Array.new(50) { |i| "https://example.com/#{i}" }
+
+      threads = urls.map do |url|
+        Thread.new do
+          cache.store(url, etag: url, body: "{}")
+          cache.etag_for(url)
+        end
+      end
+      threads.each(&:join)
+
+      urls.each { |url| assert_equal url, cache.etag_for(url) }
+    end
+  end
+
   private
 
   def with_path

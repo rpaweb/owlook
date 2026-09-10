@@ -21,15 +21,23 @@ module Owlook
       @threshold = threshold
       @remaining = nil
       @exhausted = false
+      # One instance is shared across every GithubClient call in a cycle,
+      # made concurrently (up to MAX_CONCURRENT_REQUESTS threads — see
+      # Collector#poll_branches_concurrently) — same unsynchronized-Hash-
+      # style hazard @store_mutex already guards against, just on a
+      # boolean/integer pair instead of a Hash.
+      @mutex = Mutex.new
     end
 
     def update(remaining)
-      @remaining = remaining
-      @exhausted = true if remaining <= @threshold
+      @mutex.synchronize do
+        @remaining = remaining
+        @exhausted = true if remaining <= @threshold
+      end
     end
 
     def exhausted?
-      @exhausted
+      @mutex.synchronize { @exhausted }
     end
   end
 end

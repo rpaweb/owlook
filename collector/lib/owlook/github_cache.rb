@@ -27,19 +27,26 @@ module Owlook
 
     def initialize(path)
       @path = path
+      # Real hazard, not theoretical: Collector polls branches concurrently
+      # (up to MAX_CONCURRENT_REQUESTS threads, see poll_branches_concurrently),
+      # and every thread shares this one GithubCache instance through one
+      # GithubClient. @store has its own @store_mutex for the identical
+      # reason — a plain Hash isn't safe for unsynchronized concurrent
+      # mutation, even across different keys.
+      @mutex = Mutex.new
       @entries = load
     end
 
     def etag_for(url)
-      @entries.dig(url, "etag")
+      @mutex.synchronize { @entries.dig(url, "etag") }
     end
 
     def body_for(url)
-      @entries.dig(url, "body")
+      @mutex.synchronize { @entries.dig(url, "body") }
     end
 
     def store(url, etag:, body:)
-      @entries[url] = { "etag" => etag, "body" => body, "stored_at" => Time.now.to_i }
+      @mutex.synchronize { @entries[url] = { "etag" => etag, "body" => body, "stored_at" => Time.now.to_i } }
     end
 
     # Same atomic write StateWriter uses for owlook.json, for the same
@@ -48,8 +55,11 @@ module Owlook
     # whatever file *they* chose. O_EXCL|O_NOFOLLOW make that open fail
     # instead of following it.
     def save
-      prune!
-      tmp_path = create_tmp_file(JSON.generate(@entries))
+      json = @mutex.synchronize do
+        prune!
+        JSON.generate(@entries)
+      end
+      tmp_path = create_tmp_file(json)
       File.rename(tmp_path, @path)
     end
 

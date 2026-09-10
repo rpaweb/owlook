@@ -42,4 +42,18 @@ class Owlook::RateLimitGuardTest < Minitest::Test
 
     assert_predicate guard, :exhausted?
   end
+
+  # One instance is shared across every GithubClient call in a cycle, made
+  # concurrently (up to MAX_CONCURRENT_REQUESTS threads). This doesn't prove
+  # a race is impossible, but many threads updating/reading at once should
+  # never raise, and a single low reading among them should still trip it.
+  def test_concurrent_updates_from_many_threads_do_not_corrupt_state
+    guard = Owlook::RateLimitGuard.new(threshold: 200)
+    readings = [4999, 4998, 100, 4997, 4996]
+
+    threads = readings.map { |remaining| Thread.new { guard.update(remaining) } }
+    threads.each(&:join)
+
+    assert_predicate guard, :exhausted?
+  end
 end
