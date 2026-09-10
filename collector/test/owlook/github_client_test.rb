@@ -101,6 +101,29 @@ class Owlook::GithubClientTest < Minitest::Test
     end
   end
 
+  # JSON.parse itself is lenient about invalid byte sequences inside
+  # string values (confirmed live), so the live response still parses
+  # and returns fine — but GithubCache#save's JSON.generate on the same
+  # bytes later is not, and runs unrescued at the end of every real
+  # cycle. Not caching this one response is a far smaller cost than that.
+  def test_get_does_not_cache_a_response_whose_body_is_not_valid_utf8
+    with_cache do |cache|
+      server = Owlook::FakeHttpServer.new
+      invalid_utf8_body = +"{\"total_count\":0,\"note\":\"\xFF\xFE\"}"
+      server.respond_with(200, headers: { "ETag" => '"new-etag"' }, body: invalid_utf8_body).start
+      url = "#{server.base_url}/repos/acme/widgets/actions/runs"
+
+      client = Owlook::GithubClient.new(token: "fake-token", api_base: server.base_url, cache: cache)
+      result = client.get("/repos/acme/widgets/actions/runs")
+
+      server.stop
+
+      assert_equal 0, result["total_count"]
+      assert_nil cache.etag_for(url)
+      assert_nil cache.body_for(url)
+    end
+  end
+
   def test_get_returns_the_cached_body_on_a_304_instead_of_the_empty_response
     with_cache do |cache|
       server = Owlook::FakeHttpServer.new

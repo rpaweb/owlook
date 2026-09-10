@@ -126,9 +126,23 @@ module Owlook
     # Net::HTTP doesn't reliably honor the charset in a JSON Content-Type
     # the way it does for text/*) — JSON.generate on the cached copy later
     # warns about this today and is a hard error starting json 3.0.
+    #
+    # force_encoding only relabels the tag, it doesn't validate or
+    # transcode the actual bytes — confirmed live that JSON.generate
+    # raises on a string tagged UTF-8 whose bytes genuinely aren't (a
+    # truncated response, a proxy mangling something) — and GithubCache#save
+    # runs unconditionally, unrescued, at the very end of bin/owlook-
+    # collector. Skipping the cache for that one response, rather than
+    # storing something JSON.generate can't ever write back out, is a far
+    # smaller cost than a hard crash every remaining cycle.
     def cache_response(uri, response)
       etag = response["etag"]
-      @cache&.store(uri.to_s, etag: etag, body: response.body.dup.force_encoding(Encoding::UTF_8)) if etag
+      return unless etag
+
+      body = response.body.dup.force_encoding(Encoding::UTF_8)
+      return unless body.valid_encoding?
+
+      @cache&.store(uri.to_s, etag: etag, body: body)
     end
 
     # A malformed value here (never seen live, but this header comes from
