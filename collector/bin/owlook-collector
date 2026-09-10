@@ -26,12 +26,14 @@ CONFIG_PATH = File.expand_path(ENV.fetch("OWLOOK_CONFIG", "~/.config/owlook/conf
 # directory is genuinely ours before the state file ever gets written
 # into it.
 STATE_PATH = File.join(Owlook::RuntimeDir.resolve, "owlook.json")
-# Persisted for the same reason STATE_PATH is: this process exits and
-# relaunches every cycle, so an in-memory ETag cache would never save a
-# single request. See GithubCache/GithubClient/RateLimitGuard's own
-# comments for why this exists at all — a real user got their whole `gh`
-# CLI rate-limited by a broad-mode ("all branches") poll with no caching.
-GITHUB_CACHE_PATH = File.join(Owlook::RuntimeDir.resolve, "github_cache.json")
+# resolve_cache_dir, not resolve: this needs to actually survive between
+# collector cycles (that's the whole point — see GithubCache/GithubClient/
+# RateLimitGuard's own comments for why it exists at all, a real user got
+# their whole `gh` CLI rate-limited by a broad-mode "all branches" poll
+# with no caching), including across a logout/reboot that would wipe
+# $XDG_RUNTIME_DIR — resolve's own STATE_PATH is fine losing that because
+# it's rebuilt every cycle regardless.
+GITHUB_CACHE_PATH = File.join(Owlook::RuntimeDir.resolve_cache_dir, "github_cache.json")
 
 # A settings toggle or a config.yml edit (see BarWidget.qml's
 # startCollectorCycle) kills a cycle already in progress instead of
