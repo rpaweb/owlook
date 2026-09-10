@@ -7,6 +7,8 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-10
+
 ### Fixed
 
 - "All branches" mode with no caching could burn through a large share
@@ -20,6 +22,10 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
   rest of a cycle if it ever gets uncomfortably low — a safety net for
   whatever the cache doesn't cover, so Owlook can't be the reason
   another tool sharing the same token runs out.
+- The GitHub response cache is now kept under `~/.cache/owlook` instead
+  of the runtime directory, so it actually survives a logout/reboot —
+  it was previously tied to a tmpfs location wiped on every session
+  end, which defeated the point of caching across cycles.
 
 ## [0.1.3] - 2026-09-07
 
