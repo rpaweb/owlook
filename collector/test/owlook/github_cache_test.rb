@@ -61,6 +61,37 @@ class Owlook::GithubCacheTest < Minitest::Test
     end
   end
 
+  # Same real attack StateWriter's own test guards against: another local
+  # user pre-plants a symlink at this exact path, hoping our write follows
+  # it into a file *they* chose. #save must replace the symlink itself
+  # (what File.rename does), never open and write through it.
+  def test_save_refuses_to_write_through_a_symlink_planted_at_the_target_path
+    with_path do |path|
+      victim = "#{path}.victim"
+      File.write(victim, "untouched")
+      File.symlink(victim, path)
+      url = "https://api.github.com/repos/acme/widgets/actions/runs"
+
+      cache = Owlook::GithubCache.new(path)
+      cache.store(url, etag: '"abc123"', body: "{}")
+      cache.save
+
+      refute_predicate File.lstat(path), :symlink?, "the symlink should have been replaced, not written through"
+      assert_equal "untouched", File.read(victim)
+    end
+  end
+
+  def test_save_writes_the_file_with_0600_not_a_world_or_group_readable_mode
+    with_path do |path|
+      cache = Owlook::GithubCache.new(path)
+      cache.store("https://example.com", etag: '"abc123"', body: "{}")
+
+      cache.save
+
+      assert_equal 0o600, File.stat(path).mode & 0o777
+    end
+  end
+
   private
 
   def with_path

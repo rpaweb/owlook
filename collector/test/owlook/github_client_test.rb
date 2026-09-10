@@ -142,6 +142,22 @@ class Owlook::GithubClientTest < Minitest::Test
     assert_predicate guard, :exhausted?
   end
 
+  # The header comes from outside this process — a malformed value
+  # shouldn't cost an otherwise-good 200 its own real data.
+  def test_get_still_returns_the_body_when_the_rate_limit_header_is_malformed
+    server = Owlook::FakeHttpServer.new
+    server.respond_with(200, headers: { "X-RateLimit-Remaining" => "not-a-number" }, body: '{"ok":true}').start
+    guard = Owlook::RateLimitGuard.new(threshold: 200)
+
+    client = Owlook::GithubClient.new(token: "fake-token", api_base: server.base_url, rate_limit_guard: guard)
+    result = client.get("/repos/acme/widgets/actions/runs")
+
+    server.stop
+
+    assert_equal({ "ok" => true }, result)
+    refute_predicate guard, :exhausted?
+  end
+
   # No fake server started at all — proves the request is never actually
   # attempted once the guard has tripped, not just that the eventual
   # response gets ignored.

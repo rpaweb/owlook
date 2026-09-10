@@ -131,9 +131,15 @@ module Owlook
       @cache&.store(uri.to_s, etag: etag, body: response.body.dup.force_encoding(Encoding::UTF_8)) if etag
     end
 
+    # A malformed value here (never seen live, but this header comes from
+    # the outside world) shouldn't cost an otherwise-good response its own
+    # real data — worst case, the guard just doesn't hear about this one
+    # response's quota.
     def update_rate_limit_guard(response)
       remaining = response["x-ratelimit-remaining"]
       @rate_limit_guard&.update(Integer(remaining)) if remaining
+    rescue ArgumentError, TypeError
+      nil
     end
 
     def build_request(uri)

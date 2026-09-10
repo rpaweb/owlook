@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "securerandom"
 
 module Owlook
   # Persists GitHub API ETags (and the body they matched) across collector
@@ -14,6 +15,8 @@ module Owlook
   # bad cache degrades to "every request goes through as a normal GET",
   # never a hard failure.
   class GithubCache
+    MAX_TMP_ATTEMPTS = 5
+
     def initialize(path)
       @path = path
       @entries = load
@@ -31,8 +34,14 @@ module Owlook
       @entries[url] = { "etag" => etag, "body" => body }
     end
 
+    # Same atomic write StateWriter uses for owlook.json, for the same
+    # reason: a plain File.write follows a symlink another local user
+    # pre-planted at this exact path, writing our content through it into
+    # whatever file *they* chose. O_EXCL|O_NOFOLLOW make that open fail
+    # instead of following it.
     def save
-      File.write(@path, JSON.generate(@entries))
+      tmp_path = create_tmp_file(JSON.generate(@entries))
+      File.rename(tmp_path, @path)
     end
 
     private
@@ -41,6 +50,20 @@ module Owlook
       JSON.parse(SafeFile.read(@path))
     rescue Errno::ENOENT, JSON::ParserError, SafeFile::UnsafeFileError
       {}
+    end
+
+    def create_tmp_file(json)
+      MAX_TMP_ATTEMPTS.times do
+        candidate = "#{@path}.tmp.#{SecureRandom.hex(8)}"
+        File.open(candidate, File::WRONLY | File::CREAT | File::EXCL | File::NOFOLLOW, 0o600) do |file|
+          file.write(json)
+          file.fsync
+        end
+        return candidate
+      rescue Errno::EEXIST
+        next
+      end
+      raise "could not create a temp file for #{@path} after #{MAX_TMP_ATTEMPTS} attempts"
     end
   end
 end
