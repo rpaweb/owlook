@@ -29,6 +29,19 @@ module Owlook
       end
     end
 
+    # Real, live-confirmed behavior this depends on: a "checking" cycle
+    # polling many branches every 30s with no caching at all can burn
+    # through GitHub's 5000/hour primary rate limit on its own (a real
+    # user's `gh` CLI got locked out — "all branches" on a project with
+    # ~18 branches is ~4,440 calls/hour by itself). Owlook shares one
+    # token with everything else the user runs, so it refuses to spend
+    # what's left rather than risk being the reason another tool starves.
+    class RateLimitExhaustedError < StandardError
+      def initialize(path)
+        super("GitHub API rate limit is low — skipping #{path} for the rest of this cycle")
+      end
+    end
+
     API_BASE = "https://api.github.com"
     MAX_REDIRECTS = 5
 
@@ -46,17 +59,21 @@ module Owlook
 
     # api_base is injectable so tests can point this at a real local fake
     # server instead of the live API — never overridden outside tests.
-    # cache defaults to nil (no conditional requests) rather than a hidden
-    # default instance — bin/owlook-collector passes its own explicitly;
-    # nil keeps existing tests that construct a bare client working
-    # unchanged.
-    def initialize(token:, api_base: API_BASE, cache: nil)
+    # cache/rate_limit_guard default to nil (no conditional requests, no
+    # circuit breaker) rather than a hidden default instance — every real
+    # caller (bin/owlook-collector) passes its own explicitly, sharing one
+    # RateLimitGuard across every GithubClient call in a cycle; nil keeps
+    # existing tests that construct a bare client working unchanged.
+    def initialize(token:, api_base: API_BASE, cache: nil, rate_limit_guard: nil)
       @token = token
       @api_base = api_base
       @cache = cache
+      @rate_limit_guard = rate_limit_guard
     end
 
     def get(path)
+      raise RateLimitExhaustedError, path if @rate_limit_guard&.exhausted?
+
       fetch(URI("#{@api_base}#{path}"), path)
     end
 
@@ -74,6 +91,8 @@ module Owlook
       response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
         http.request(build_request(uri))
       end
+
+      update_rate_limit_guard(response)
 
       case response
       when Net::HTTPNotModified
@@ -110,6 +129,11 @@ module Owlook
     def cache_response(uri, response)
       etag = response["etag"]
       @cache&.store(uri.to_s, etag: etag, body: response.body.dup.force_encoding(Encoding::UTF_8)) if etag
+    end
+
+    def update_rate_limit_guard(response)
+      remaining = response["x-ratelimit-remaining"]
+      @rate_limit_guard&.update(Integer(remaining)) if remaining
     end
 
     def build_request(uri)

@@ -129,6 +129,30 @@ class Owlook::GithubClientTest < Minitest::Test
     end
   end
 
+  def test_get_updates_the_rate_limit_guard_from_the_response_header
+    server = Owlook::FakeHttpServer.new
+    server.respond_with(200, headers: { "X-RateLimit-Remaining" => "5" }, body: "{}").start
+    guard = Owlook::RateLimitGuard.new(threshold: 200)
+
+    client = Owlook::GithubClient.new(token: "fake-token", api_base: server.base_url, rate_limit_guard: guard)
+    client.get("/repos/acme/widgets/actions/runs")
+
+    server.stop
+
+    assert_predicate guard, :exhausted?
+  end
+
+  # No fake server started at all — proves the request is never actually
+  # attempted once the guard has tripped, not just that the eventual
+  # response gets ignored.
+  def test_get_raises_immediately_without_a_request_once_the_guard_is_exhausted
+    guard = Owlook::RateLimitGuard.new(threshold: 200)
+    guard.update(1)
+    client = Owlook::GithubClient.new(token: "fake-token", api_base: "http://127.0.0.1:1", rate_limit_guard: guard)
+
+    assert_raises(Owlook::GithubClient::RateLimitExhaustedError) { client.get("/repos/acme/widgets/actions/runs") }
+  end
+
   private
 
   def with_cache

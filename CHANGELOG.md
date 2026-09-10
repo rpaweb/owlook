@@ -15,6 +15,11 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
   and revalidated with conditional requests; a `304 Not Modified`
   response (the common case — nothing changed since the last poll)
   costs no quota at all, confirmed live against the real API.
+- On top of that caching, a circuit breaker now watches GitHub's own
+  remaining-quota header and stops all further GitHub calls for the
+  rest of a cycle if it ever gets uncomfortably low — a safety net for
+  whatever the cache doesn't cover, so Owlook can't be the reason
+  another tool sharing the same token runs out.
 
 ## [0.1.3] - 2026-09-07
 

@@ -28,9 +28,9 @@ CONFIG_PATH = File.expand_path(ENV.fetch("OWLOOK_CONFIG", "~/.config/owlook/conf
 STATE_PATH = File.join(Owlook::RuntimeDir.resolve, "owlook.json")
 # Persisted for the same reason STATE_PATH is: this process exits and
 # relaunches every cycle, so an in-memory ETag cache would never save a
-# single request. See GithubCache/GithubClient's own comments for why
-# this exists at all — a real user got their whole `gh` CLI rate-limited
-# by a broad-mode ("all branches") poll with no caching.
+# single request. See GithubCache/GithubClient/RateLimitGuard's own
+# comments for why this exists at all — a real user got their whole `gh`
+# CLI rate-limited by a broad-mode ("all branches") poll with no caching.
 GITHUB_CACHE_PATH = File.join(Owlook::RuntimeDir.resolve, "github_cache.json")
 
 # A settings toggle or a config.yml edit (see BarWidget.qml's
@@ -64,7 +64,12 @@ def log(message)
 end
 
 github_cache = Owlook::GithubCache.new(GITHUB_CACHE_PATH)
-client = Owlook::GithubClient.new(token: Owlook::GithubClient.resolve_token, cache: github_cache)
+rate_limit_guard = Owlook::RateLimitGuard.new
+client = Owlook::GithubClient.new(
+  token: Owlook::GithubClient.resolve_token,
+  cache: github_cache,
+  rate_limit_guard: rate_limit_guard
+)
 config_loader = -> { Owlook::Config.load(CONFIG_PATH) }
 
 collector = Owlook::Collector.new(
@@ -83,8 +88,8 @@ collector.poll_queues_once
 # needs this (poll_ci_once/poll_queues_once never touch the state file at
 # all when there's nothing to poll).
 collector.flush_state
-# Unconditional, same as flush_state above — even a cycle that hit a
-# real API error partway through should keep whatever ETags it did
-# collect before that point, not discard them.
+# Unconditional, same as flush_state above — even a cycle that hit the
+# rate-limit guard partway through should keep whatever real ETags it
+# did collect before that point, not discard them.
 github_cache.save
 log("cycle finished")
