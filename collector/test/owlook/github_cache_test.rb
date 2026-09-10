@@ -61,6 +61,57 @@ class Owlook::GithubCacheTest < Minitest::Test
     end
   end
 
+  # Syntactically valid JSON, wrong shape — disk corruption, a manual
+  # edit, or a future incompatible format could all produce this.
+  # JSON::ParserError never catches it (it parses cleanly), so every
+  # entries.dig/[]= call downstream would raise on a non-Hash unless
+  # this is checked explicitly. Confirmed live before this fix: a literal
+  # "null" file broke etag_for and store both.
+  def test_a_file_containing_valid_json_that_is_not_a_hash_starts_empty
+    with_path do |path|
+      File.write(path, "null")
+      cache = Owlook::GithubCache.new(path)
+
+      assert_nil cache.etag_for("https://example.com")
+      cache.store("https://example.com", etag: '"abc123"', body: "{}")
+
+      assert_equal '"abc123"', cache.etag_for("https://example.com")
+    end
+  end
+
+  def test_an_array_shaped_json_file_also_starts_empty
+    with_path do |path|
+      File.write(path, "[]")
+      cache = Owlook::GithubCache.new(path)
+
+      assert_nil cache.etag_for("https://example.com")
+    end
+  end
+
+  # The real scenario this exists for: a branch gets merged/closed and
+  # simply stops appearing in branches_with_runs — nothing ever tells
+  # this class its URL is gone. Without expiry, "all branches" on a repo
+  # with real dependabot/renovate churn (this PR's own motivating case)
+  # accumulates permanent garbage entries.
+  def test_save_prunes_entries_older_than_the_retention_window
+    with_path do |path|
+      stale_url = "https://api.github.com/repos/acme/widgets/actions/runs?branch=long-merged"
+      fresh_url = "https://api.github.com/repos/acme/widgets/actions/runs?branch=master"
+      raw = {
+        stale_url => { "etag" => '"old"', "body" => "{}", "stored_at" => Time.now.to_i - (Owlook::GithubCache::RETENTION + 1) },
+        fresh_url => { "etag" => '"new"', "body" => "{}", "stored_at" => Time.now.to_i }
+      }
+      File.write(path, JSON.generate(raw))
+
+      cache = Owlook::GithubCache.new(path)
+      cache.save
+      reloaded = Owlook::GithubCache.new(path)
+
+      assert_nil reloaded.etag_for(stale_url)
+      assert_equal '"new"', reloaded.etag_for(fresh_url)
+    end
+  end
+
   # Same real attack StateWriter's own test guards against: another local
   # user pre-plants a symlink at this exact path, hoping our write follows
   # it into a file *they* chose. #save must replace the symlink itself

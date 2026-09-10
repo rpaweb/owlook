@@ -16,6 +16,14 @@ module Owlook
   # never a hard failure.
   class GithubCache
     MAX_TMP_ATTEMPTS = 5
+    # A dependabot/renovate branch that gets merged/closed simply stops
+    # appearing in branches_with_runs — nothing ever tells this class that
+    # URL is gone, so without an expiry it would accumulate garbage
+    # entries forever under exactly the branch-churn scenario this cache
+    # exists to help with. A week comfortably outlives any real gap in
+    # polling (a rate-limit-guard-skipped cycle, a shell restart) while
+    # still bounding growth for a genuinely abandoned branch.
+    RETENTION = 7 * 24 * 60 * 60 # seconds
 
     def initialize(path)
       @path = path
@@ -31,7 +39,7 @@ module Owlook
     end
 
     def store(url, etag:, body:)
-      @entries[url] = { "etag" => etag, "body" => body }
+      @entries[url] = { "etag" => etag, "body" => body, "stored_at" => Time.now.to_i }
     end
 
     # Same atomic write StateWriter uses for owlook.json, for the same
@@ -40,16 +48,34 @@ module Owlook
     # whatever file *they* chose. O_EXCL|O_NOFOLLOW make that open fail
     # instead of following it.
     def save
+      prune!
       tmp_path = create_tmp_file(JSON.generate(@entries))
       File.rename(tmp_path, @path)
     end
 
     private
 
+    # A file whose content is syntactically valid JSON but the wrong
+    # shape (a bare `null`, an Array — disk corruption, a manual edit, an
+    # incompatible future format) parses cleanly, so JSON::ParserError
+    # never catches it; every entries.dig/[]= call downstream would then
+    # raise on a non-Hash. Same "not safe to trust, treat as empty"
+    # response as the exceptions already rescued below.
     def load
-      JSON.parse(SafeFile.read(@path))
+      parsed = JSON.parse(SafeFile.read(@path))
+      parsed.is_a?(Hash) ? parsed : {}
     rescue Errno::ENOENT, JSON::ParserError, SafeFile::UnsafeFileError
       {}
+    end
+
+    # An entry with no "stored_at" (written by a version of this class
+    # before that field existed) is treated as already-expired rather
+    # than kept indefinitely — safe either way, since a pruned entry just
+    # means the next request for that URL is a normal GET instead of a
+    # free 304.
+    def prune!
+      cutoff = Time.now.to_i - RETENTION
+      @entries.reject! { |_url, entry| (entry["stored_at"] || 0) < cutoff }
     end
 
     def create_tmp_file(json)
