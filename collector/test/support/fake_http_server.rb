@@ -12,9 +12,16 @@ module Owlook
   # Scripted with a queue of responses, one per request received, in
   # order — #respond_with(status, headers: {}, body: "") queues one.
   class FakeHttpServer
+    # Every request actually received, in order — [{ path:, headers: }, ...]
+    # (headers keyed lowercase) — lets a test assert the client sent a real
+    # conditional header (If-None-Match), not just that it handled the
+    # response.
+    attr_reader :received_requests
+
     def initialize
       @server = TCPServer.new("127.0.0.1", 0)
       @responses = []
+      @received_requests = []
     end
 
     def port = @server.addr[1]
@@ -31,8 +38,7 @@ module Owlook
         @responses.length.times do
           socket = @server.accept
           begin
-            socket.gets # request line — path/method aren't used, only sequencing
-            socket.readline until socket.gets.to_s.chomp.empty? # drain headers
+            @received_requests << read_request(socket)
             status, headers, body = @responses.shift
             write_response(socket, status, headers, body)
           ensure
@@ -50,6 +56,17 @@ module Owlook
 
     private
 
+    def read_request(socket)
+      request_line = socket.gets.to_s
+      path = request_line.split[1]
+      headers = {}
+      while (line = socket.gets) && line.chomp != ""
+        key, value = line.chomp.split(":", 2)
+        headers[key.strip.downcase] = value.strip if key && value
+      end
+      { path: path, headers: headers }
+    end
+
     def write_response(socket, status, headers, body)
       socket.write "HTTP/1.1 #{status} #{reason(status)}\r\n"
       socket.write "Content-Length: #{body.bytesize}\r\n"
@@ -60,7 +77,7 @@ module Owlook
     end
 
     def reason(status)
-      { 200 => "OK", 301 => "Moved Permanently", 404 => "Not Found" }.fetch(status, "Unknown")
+      { 200 => "OK", 301 => "Moved Permanently", 304 => "Not Modified", 404 => "Not Found" }.fetch(status, "Unknown")
     end
   end
 end

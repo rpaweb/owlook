@@ -69,6 +69,34 @@ class Owlook::RuntimeDirTest < Minitest::Test
     end
   end
 
+  # $XDG_RUNTIME_DIR is tmpfs, wiped on every logout/reboot — fine for the
+  # state file (#resolve), which is rebuilt every cycle regardless, but it
+  # would quietly defeat GithubCache's own multi-day retention window.
+  # resolve_cache_dir ignores it on purpose, unlike resolve.
+  def test_resolve_cache_dir_ignores_xdg_runtime_dir_and_always_uses_the_cache_home
+    with_dir do |home|
+      resolved = Owlook::RuntimeDir.resolve_cache_dir(env: { "HOME" => home, "XDG_RUNTIME_DIR" => "/run/user/1000" })
+
+      assert_equal File.join(home, ".cache", "owlook"), resolved
+      assert_equal 0o700, File.stat(resolved).mode & 0o777
+    end
+  end
+
+  def test_resolve_cache_dir_refuses_a_symlinked_cache_dir
+    with_dir do |home|
+      real_dir = File.join(home, "real")
+      Dir.mkdir(real_dir, 0o700)
+      cache_parent = File.join(home, ".cache")
+      Dir.mkdir(cache_parent, 0o700)
+      File.symlink(real_dir, File.join(cache_parent, "owlook"))
+
+      error = assert_raises(Owlook::RuntimeDir::UnsafeDirectoryError) do
+        Owlook::RuntimeDir.resolve_cache_dir(env: { "HOME" => home })
+      end
+      assert_includes error.message, "symlink"
+    end
+  end
+
   private
 
   def with_dir(&)

@@ -26,6 +26,14 @@ CONFIG_PATH = File.expand_path(ENV.fetch("OWLOOK_CONFIG", "~/.config/owlook/conf
 # directory is genuinely ours before the state file ever gets written
 # into it.
 STATE_PATH = File.join(Owlook::RuntimeDir.resolve, "owlook.json")
+# resolve_cache_dir, not resolve: this needs to actually survive between
+# collector cycles (that's the whole point — see GithubCache/GithubClient/
+# RateLimitGuard's own comments for why it exists at all, a real user got
+# their whole `gh` CLI rate-limited by a broad-mode "all branches" poll
+# with no caching), including across a logout/reboot that would wipe
+# $XDG_RUNTIME_DIR — resolve's own STATE_PATH is fine losing that because
+# it's rebuilt every cycle regardless.
+GITHUB_CACHE_PATH = File.join(Owlook::RuntimeDir.resolve_cache_dir, "github_cache.json")
 
 # A settings toggle or a config.yml edit (see BarWidget.qml's
 # startCollectorCycle) kills a cycle already in progress instead of
@@ -57,7 +65,13 @@ def log(message)
   $stderr.flush
 end
 
-client = Owlook::GithubClient.new(token: Owlook::GithubClient.resolve_token)
+github_cache = Owlook::GithubCache.new(GITHUB_CACHE_PATH)
+rate_limit_guard = Owlook::RateLimitGuard.new
+client = Owlook::GithubClient.new(
+  token: Owlook::GithubClient.resolve_token,
+  cache: github_cache,
+  rate_limit_guard: rate_limit_guard
+)
 config_loader = -> { Owlook::Config.load(CONFIG_PATH) }
 
 collector = Owlook::Collector.new(
@@ -76,4 +90,8 @@ collector.poll_queues_once
 # needs this (poll_ci_once/poll_queues_once never touch the state file at
 # all when there's nothing to poll).
 collector.flush_state
+# Unconditional, same as flush_state above — even a cycle that hit the
+# rate-limit guard partway through should keep whatever real ETags it
+# did collect before that point, not discard them.
+github_cache.save
 log("cycle finished")
