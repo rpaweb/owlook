@@ -7,6 +7,8 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-11
+
 ### Fixed
 
 - A multi-monitor setup could fire the same desktop notification twice
