@@ -34,6 +34,15 @@ STATE_PATH = File.join(Owlook::RuntimeDir.resolve, "owlook.json")
 # $XDG_RUNTIME_DIR — resolve's own STATE_PATH is fine losing that because
 # it's rebuilt every cycle regardless.
 GITHUB_CACHE_PATH = File.join(Owlook::RuntimeDir.resolve_cache_dir, "github_cache.json")
+# Ephemeral like STATE_PATH — a lock only means anything for cycles
+# racing within the same boot, never across one. See CollectorLock's own
+# comment for the real bug this exists to prevent: Quickshell mounts this
+# whole widget (Timer included) once per screen, so a 2-monitor setup
+# means 2 independent 30s timers, each spawning their own instance of
+# this script — confirmed live to fire the same desktop notification
+# twice for one real transition, both instances racing to read the same
+# "before" state with zero coordination.
+LOCK_PATH = File.join(Owlook::RuntimeDir.resolve, "owlook.lock")
 
 # A settings toggle or a config.yml edit (see BarWidget.qml's
 # startCollectorCycle) kills a cycle already in progress instead of
@@ -65,33 +74,45 @@ def log(message)
   $stderr.flush
 end
 
-github_cache = Owlook::GithubCache.new(GITHUB_CACHE_PATH)
-rate_limit_guard = Owlook::RateLimitGuard.new
-client = Owlook::GithubClient.new(
-  token: Owlook::GithubClient.resolve_token,
-  cache: github_cache,
-  rate_limit_guard: rate_limit_guard
-)
-config_loader = -> { Owlook::Config.load(CONFIG_PATH) }
+# Everything that touches shared state — reading STATE_PATH/
+# GITHUB_CACHE_PATH through to writing them back out — happens inside
+# the lock, not just the polling in between: a second instance reading
+# either file mid-cycle would be reading something this cycle hasn't
+# finished updating yet.
+ran = Owlook::CollectorLock.new(LOCK_PATH).run_exclusively do
+  github_cache = Owlook::GithubCache.new(GITHUB_CACHE_PATH)
+  rate_limit_guard = Owlook::RateLimitGuard.new
+  client = Owlook::GithubClient.new(
+    token: Owlook::GithubClient.resolve_token,
+    cache: github_cache,
+    rate_limit_guard: rate_limit_guard
+  )
+  config_loader = -> { Owlook::Config.load(CONFIG_PATH) }
 
-collector = Owlook::Collector.new(
-  config_loader: config_loader,
-  store: Owlook::Store.load(STATE_PATH),
-  writer: Owlook::StateWriter.new(STATE_PATH),
-  github_source: Owlook::Sources::GitHub.new(client: client),
-  logger: method(:log)
-)
+  collector = Owlook::Collector.new(
+    config_loader: config_loader,
+    store: Owlook::Store.load(STATE_PATH),
+    writer: Owlook::StateWriter.new(STATE_PATH),
+    github_source: Owlook::Sources::GitHub.new(client: client),
+    logger: method(:log)
+  )
 
-log("cycle starting: watching #{CONFIG_PATH} (#{config_loader.call.projects.size} project(s)) -> #{STATE_PATH}")
-collector.poll_ci_once
-collector.poll_queues_once
-# Unconditional, even with zero projects configured — see
-# Collector#flush_state's own comment for why that case specifically
-# needs this (poll_ci_once/poll_queues_once never touch the state file at
-# all when there's nothing to poll).
-collector.flush_state
-# Unconditional, same as flush_state above — even a cycle that hit the
-# rate-limit guard partway through should keep whatever real ETags it
-# did collect before that point, not discard them.
-github_cache.save
-log("cycle finished")
+  log("cycle starting: watching #{CONFIG_PATH} (#{config_loader.call.projects.size} project(s)) -> #{STATE_PATH}")
+  collector.poll_ci_once
+  collector.poll_queues_once
+  # Unconditional, even with zero projects configured — see
+  # Collector#flush_state's own comment for why that case specifically
+  # needs this (poll_ci_once/poll_queues_once never touch the state file
+  # at all when there's nothing to poll).
+  collector.flush_state
+  # Unconditional, same as flush_state above — even a cycle that hit the
+  # rate-limit guard partway through should keep whatever real ETags it
+  # did collect before that point, not discard them.
+  github_cache.save
+  log("cycle finished")
+end
+
+# Not an error — the other holder is another instance of this exact
+# script (see LOCK_PATH's own comment), already doing this cycle's work
+# from the same shared state. Nothing left for this one to contribute.
+log("another collector cycle is already running elsewhere — skipping this cycle") unless ran
