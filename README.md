@@ -77,6 +77,12 @@ still running when the next one would start is skipped, not stacked, so
 a slow cycle (cold SSH connections, a project with many branches) never
 piles up overlapping runs.
 
+On a multi-monitor setup, Quickshell mounts the widget — Timer included —
+once per screen, so more than one of these cycles can genuinely be
+scheduled at the same time. A lock (`Owlook::CollectorLock`) ensures only
+one of them actually runs a given cycle; the rest skip it immediately,
+since whichever one wins already covers the same shared state file.
+
 This means polling only happens while the Omarchy shell itself is
 running — restarting it (`omarchy restart shell`, a theme change, a
 crash) pauses updates until it comes back, same as any other bar widget.

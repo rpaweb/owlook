@@ -7,6 +7,14 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
 
 ## [Unreleased]
 
+### Fixed
+
+- A multi-monitor setup could fire the same desktop notification twice
+  for one real transition — Quickshell mounts the whole widget (Timer
+  included) once per screen, so each monitor ran its own independent
+  collector cycle with no coordination between them. Only one instance
+  now runs a given cycle; the rest skip it cleanly.
+
 ## [0.1.4] - 2026-09-10
 
 ### Fixed
