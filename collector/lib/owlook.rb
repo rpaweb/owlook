@@ -21,6 +21,7 @@ require_relative "owlook/widget_settings"
 require_relative "owlook/notifier"
 require_relative "owlook/store"
 require_relative "owlook/state_writer"
+require_relative "owlook/collector_lock"
 require_relative "owlook/collector"
 
 module Owlook
