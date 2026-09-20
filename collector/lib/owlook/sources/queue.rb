@@ -4,6 +4,7 @@ require "json"
 require "shellwords"
 require_relative "ssh_agent"
 require_relative "queue_backends/solid_queue"
+require_relative "queue_backends/sidekiq"
 
 module Owlook
   module Sources
@@ -15,11 +16,10 @@ module Owlook
     # classes already exist once its gem is installed).
     #
     # Which queue library that `bin/rails runner` snippet talks to is
-    # decided per project, from its own Gemfile.lock — see QueueBackends
-    # and #detect_backend below. Solid Queue is the only backend so far
-    # (and the unconditional fallback when nothing else is registered),
-    # but the detection mechanism itself doesn't assume that — a second
-    # backend is a new entry in BACKENDS, not a rewrite of this class.
+    # decided per project, from its own Gemfile.lock — see
+    # QueueBackends and #detect_backend below. Solid Queue was the only
+    # one this ever supported; Sidekiq is the first addition, since it's
+    # far more common in the real Rails ecosystem.
     #
     # `shell` is injectable so tests never touch the network; the real
     # default shells out to the `kamal` CLI via Open3, never a hand-rolled
@@ -46,10 +46,8 @@ module Owlook
       # deliberately not in this list — it's the unconditional fallback
       # in #detect_backend below, not a candidate competing on equal
       # footing, so a project with neither gem detected keeps today's
-      # exact behavior instead of a new "unsupported" failure mode. Empty
-      # for now — this commit is the detection mechanism itself, with
-      # nothing yet registered to actually detect.
-      BACKENDS = [].freeze
+      # exact behavior instead of a new "unsupported" failure mode.
+      BACKENDS = [QueueBackends::Sidekiq].freeze
 
       # BoundedCommand, not a raw Open3.capture3: this runs over SSH
       # against a destination this process doesn't control, and
