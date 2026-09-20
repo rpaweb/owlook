@@ -49,6 +49,17 @@ class Owlook::Sources::QueueBackends::SidekiqTest < Minitest::Test
     end
   end
 
+  # RUNNER_CODE is never actually executed by this suite (same as Solid
+  # Queue's own RUNNER_CODE — there's no live Sidekiq/Rails process to run
+  # it against here), so this is the only guard against silently dropping
+  # this line: confirmed live, against a real production Rails app
+  # (nycbirdalliance), that plain `gem "sidekiq"` does not autoload
+  # Sidekiq::Queue/DeadSet/ProcessSet — they raised `uninitialized
+  # constant` until this explicit require was added.
+  def test_runner_code_requires_sidekiq_api_explicitly
+    assert_includes Owlook::Sources::QueueBackends::Sidekiq::RUNNER_CODE, 'require "sidekiq/api"'
+  end
+
   private
 
   def with_gemfile_lock(content)

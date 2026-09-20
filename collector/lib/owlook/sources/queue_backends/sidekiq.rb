@@ -32,7 +32,16 @@ module Owlook
         #              enqueued. Max across queues, only when something's
         #              actually ready — same "no fake zero" reasoning as
         #              Solid Queue's own oldest.
+        #
+        # `require "sidekiq/api"` is not optional — confirmed live against
+        # a real production Rails app (nycbirdalliance): plain `gem
+        # "sidekiq"` does not autoload it (Sidekiq::Queue and friends live
+        # in a separate file the main gem entry point never requires), so
+        # without this line every one of these constants raises
+        # `uninitialized constant` the moment a project doesn't also pull
+        # in Sidekiq::Web or another gem that happens to require it first.
         RUNNER_CODE = <<~RUBY.strip
+          require "sidekiq/api"
           queues = Sidekiq::Queue.all
           result = {
             ready: queues.sum(&:size),
