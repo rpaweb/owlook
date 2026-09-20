@@ -146,7 +146,10 @@ class Owlook::Sources::QueueTest < Minitest::Test
 
     reconstructed = Shellwords.split(shell.last_command.join(" "))
 
-    assert_equal Owlook::Sources::Queue::RUNNER_CODE, reconstructed.last
+    # "/tmp/widgets" has no real Gemfile.lock, so detection finds nothing
+    # and falls back to Solid Queue — the same default this test relied
+    # on before backend detection existed at all.
+    assert_equal Owlook::Sources::QueueBackends::SolidQueue::RUNNER_CODE, reconstructed.last
   end
 
   def test_command_failed_error_includes_stderr_so_failures_are_debuggable

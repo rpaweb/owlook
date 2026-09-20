@@ -3,15 +3,23 @@
 require "json"
 require "shellwords"
 require_relative "ssh_agent"
+require_relative "queue_backends/solid_queue"
 
 module Owlook
   module Sources
-    # Reads Solid Queue backlog/dead-job counts for a deployed destination by
-    # running `bin/rails runner` inside the *already-running* production
-    # container over SSH (`kamal app exec --reuse`) — reuses whatever SSH
-    # access the developer already has for `kamal deploy` itself, and needs
-    # zero code added to the target Rails app (Solid Queue's own model
-    # classes already exist once the gem is installed).
+    # Reads backlog/dead-job counts for a deployed destination by running
+    # `bin/rails runner` inside the *already-running* production container
+    # over SSH (`kamal app exec --reuse`) — reuses whatever SSH access the
+    # developer already has for `kamal deploy` itself, and needs zero code
+    # added to the target Rails app (the queue library's own model/API
+    # classes already exist once its gem is installed).
+    #
+    # Which queue library that `bin/rails runner` snippet talks to is
+    # decided per project, from its own Gemfile.lock — see QueueBackends
+    # and #detect_backend below. Solid Queue is the only backend so far
+    # (and the unconditional fallback when nothing else is registered),
+    # but the detection mechanism itself doesn't assume that — a second
+    # backend is a new entry in BACKENDS, not a rewrite of this class.
     #
     # `shell` is injectable so tests never touch the network; the real
     # default shells out to the `kamal` CLI via Open3, never a hand-rolled
@@ -33,29 +41,15 @@ module Owlook
         end
       end
 
-      # Backlog = ready_executions: jobs waiting for a worker right now.
-      # Dead = failed_executions: jobs that failed and haven't been retried
-      # or discarded. workers = processes Solid Queue itself still
-      # considers alive (SolidQueue.process_alive_threshold, 5 minutes by
-      # default — confirmed against the installed gem — rather than a
-      # guessed constant, so this tracks whatever the target app actually
-      # configured). oldest is the age in seconds of the longest-waiting
-      # ready job, omitted entirely when nothing's waiting — there's no
-      # "oldest" to report with zero ready jobs, and a fake zero there
-      # would read as "the queue just started", not "empty". Targets the
-      # canonical solid_queue model names — a custom fork with a different
-      # schema (like a project pinning joshleblanc/solid_queue) may not
-      # match.
-      RUNNER_CODE = <<~RUBY.strip
-        oldest_ready = SolidQueue::ReadyExecution.minimum(:created_at)
-        result = {
-          ready: SolidQueue::ReadyExecution.count,
-          failed: SolidQueue::FailedExecution.count,
-          workers: SolidQueue::Process.where("last_heartbeat_at > ?", SolidQueue.process_alive_threshold.ago).count
-        }
-        result[:oldest] = (Time.current - oldest_ready).round if oldest_ready
-        puts result.to_json
-      RUBY
+      # Tried in order against the project's own Gemfile.lock; the first
+      # one that detects itself wins. QueueBackends::SolidQueue is
+      # deliberately not in this list — it's the unconditional fallback
+      # in #detect_backend below, not a candidate competing on equal
+      # footing, so a project with neither gem detected keeps today's
+      # exact behavior instead of a new "unsupported" failure mode. Empty
+      # for now — this commit is the detection mechanism itself, with
+      # nothing yet registered to actually detect.
+      BACKENDS = [].freeze
 
       # BoundedCommand, not a raw Open3.capture3: this runs over SSH
       # against a destination this process doesn't control, and
@@ -89,18 +83,35 @@ module Owlook
         SSHAgent.resolve_auth_sock(env: env, socket_exists: socket_exists)
       end
 
-      def initialize(shell: DEFAULT_SHELL)
+      # backends is injectable purely so a test can prove detection order
+      # without needing a real Sidekiq-shaped Gemfile.lock fixture for
+      # every case — the real default is BACKENDS, never overridden
+      # outside tests.
+      def initialize(shell: DEFAULT_SHELL, backends: BACKENDS)
         @shell = shell
+        @backends = backends
       end
 
       def status(project_path:, destination:)
-        output = @shell.call(build_command(destination), chdir: project_path)
+        backend = detect_backend(project_path)
+        output = @shell.call(build_command(destination, backend), chdir: project_path)
         parse(output)
       end
 
       private
 
-      def build_command(destination)
+      # Reads the project's own Gemfile.lock once per call — a local file
+      # read, same cost class as Sources::Kamal's own destination
+      # discovery, not the slow SSH round-trip that follows. Falls back to
+      # QueueBackends::SolidQueue unconditionally: every project this ever
+      # ran against before backend detection existed was assumed to be
+      # Solid Queue, so "detected nothing more specific" has to mean the
+      # same thing it always did, not a new failure mode.
+      def detect_backend(project_path)
+        @backends.find { |backend| backend.detect?(project_path) } || QueueBackends::SolidQueue
+      end
+
+      def build_command(destination, backend)
         command = ["kamal", "app", "exec", "--reuse", "--raw"]
         command += ["--destination", destination] unless destination == "default"
         # Kamal::Utils.join_commands (verified by reading the gem source) is
@@ -108,7 +119,7 @@ module Owlook
         # ultimately runs through a shell on the remote host (SSH exec takes
         # one command string, not an argv array). Pre-escape our own
         # argument so it survives that reconstruction as one token.
-        command + ["--", "bin/rails", "runner", Shellwords.escape(RUNNER_CODE)]
+        command + ["--", "bin/rails", "runner", Shellwords.escape(backend::RUNNER_CODE)]
       end
 
       def parse(output)
