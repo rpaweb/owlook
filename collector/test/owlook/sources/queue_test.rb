@@ -2,6 +2,7 @@
 
 require "test_helper"
 require "shellwords"
+require "tmpdir"
 
 class Owlook::Sources::QueueTest < Minitest::Test
   def test_status_parses_ready_and_failed_counts
@@ -146,7 +147,46 @@ class Owlook::Sources::QueueTest < Minitest::Test
 
     reconstructed = Shellwords.split(shell.last_command.join(" "))
 
-    assert_equal Owlook::Sources::Queue::RUNNER_CODE, reconstructed.last
+    # "/tmp/widgets" has no real Gemfile.lock, so detection finds nothing
+    # and falls back to Solid Queue — the same default this test relied
+    # on before backend detection existed at all.
+    assert_equal Owlook::Sources::QueueBackends::SolidQueue::RUNNER_CODE, reconstructed.last
+  end
+
+  def test_status_uses_the_sidekiq_backends_runner_code_when_sidekiq_is_detected
+    with_gemfile_lock(<<~LOCK) do |path|
+      GEM
+        remote: https://rubygems.org/
+        specs:
+          sidekiq (7.2.0)
+    LOCK
+      shell = FakeShell.new('{"ready":0,"failed":0}')
+      source = Owlook::Sources::Queue.new(shell: shell)
+
+      source.status(project_path: path, destination: "default")
+
+      reconstructed = Shellwords.split(shell.last_command.join(" "))
+
+      assert_equal Owlook::Sources::QueueBackends::Sidekiq::RUNNER_CODE, reconstructed.last
+    end
+  end
+
+  def test_status_falls_back_to_solid_queue_when_no_backend_is_detected
+    with_gemfile_lock(<<~LOCK) do |path|
+      GEM
+        remote: https://rubygems.org/
+        specs:
+          pg (1.5.0)
+    LOCK
+      shell = FakeShell.new('{"ready":0,"failed":0}')
+      source = Owlook::Sources::Queue.new(shell: shell)
+
+      source.status(project_path: path, destination: "default")
+
+      reconstructed = Shellwords.split(shell.last_command.join(" "))
+
+      assert_equal Owlook::Sources::QueueBackends::SolidQueue::RUNNER_CODE, reconstructed.last
+    end
   end
 
   def test_command_failed_error_includes_stderr_so_failures_are_debuggable
@@ -207,6 +247,13 @@ class Owlook::Sources::QueueTest < Minitest::Test
       )
     end
     assert_includes error.message, "exceeded"
+  end
+
+  def with_gemfile_lock(content)
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "Gemfile.lock"), content)
+      yield dir
+    end
   end
 
   class FakeShell

@@ -7,6 +7,13 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
 
 ## [Unreleased]
 
+### Added
+
+- Sidekiq is now a supported queue backend, alongside Solid Queue —
+  auto-detected from the project's own `Gemfile.lock`, nothing to
+  configure. A project with neither gem detected keeps the previous
+  Solid Queue default unchanged.
+
 ## [0.1.5] - 2026-09-11
 
 ### Fixed
