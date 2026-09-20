@@ -44,15 +44,16 @@ the plugin takes it with it.
   (`kamal app version`), and how fresh it is against CI or the repo's
   latest git tag — works whether a destination deploys from a branch or
   a release tag.
-- **Queues** — Solid Queue backlog, dead jobs, and active workers, over
-  the same SSH access `kamal deploy` already uses. No code added to the
-  target app, no new credentials.
+- **Queues** — backlog, dead jobs, and active workers, over the same SSH
+  access `kamal deploy` already uses. No code added to the target app,
+  no new credentials. Solid Queue and Sidekiq are both supported today,
+  auto-detected from the project's own `Gemfile.lock` — nothing to
+  configure.
 - **Notifications** — desktop alerts on real state transitions only,
   never a repeat poll.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history. Not built yet:
-Sidekiq (behind the same source interface as Solid Queue), and any Git
-host besides GitHub.
+any Git host besides GitHub.
 
 ## Requirements
 
