@@ -212,9 +212,18 @@ module Owlook::CollectorTestSupport
     end
   end
 
-  FakeSettings = Struct.new(:all_branches, keyword_init: true) do
+  # notifications_enabled defaults to nil when a test doesn't pass it
+  # (every existing FakeSettings.new(all_branches: ...) call, none of
+  # which care about notifications) — != false reads that the same way
+  # Owlook::WidgetSettings#notifications_enabled? itself does: enabled
+  # unless explicitly turned off.
+  FakeSettings = Struct.new(:all_branches, :notifications_enabled, keyword_init: true) do
     def all_branches?
       !!all_branches
+    end
+
+    def notifications_enabled?
+      notifications_enabled != false
     end
   end
 
