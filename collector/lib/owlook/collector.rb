@@ -629,7 +629,14 @@ module Owlook
     # a real prior result despite not being a check — a branch going from
     # "nothing has ever run" to "it just failed" is exactly the kind of
     # change worth surfacing.
+    #
+    # The notifications_enabled? check comes first, ahead of the (cheap
+    # but still pointless if the answer doesn't matter) work below: this
+    # is the one place every real transition already passes through —
+    # CI, deploy, and queue alike — so it's also the one place a global
+    # "stop notifying me" toggle needs to live.
     def notify_on_transition(observation, previous)
+      return unless @settings_loader.call.notifications_enabled?
       return if previous.nil? || previous.state == "checking"
       return if previous.state == observation.state
 

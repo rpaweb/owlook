@@ -70,6 +70,70 @@ class Owlook::WidgetSettingsTest < Minitest::Test
     end
   end
 
+  # Opposite default from all_branches? on purpose: every existing user
+  # with no setting written yet must keep getting notified exactly like
+  # before this toggle existed — "nothing configured" has to mean "on",
+  # not "off".
+  def test_notifications_enabled_is_true_by_default
+    with_shell_json({}) do |path|
+      assert_predicate Owlook::WidgetSettings.load(path: path), :notifications_enabled?
+    end
+  end
+
+  def test_notifications_enabled_reads_false_when_explicitly_disabled
+    shell_json = { "bar" => { "layout" => { "right" => [
+      { "id" => "owlook.status", "notificationsEnabled" => false }
+    ] } } }
+
+    with_shell_json(shell_json) do |path|
+      refute_predicate Owlook::WidgetSettings.load(path: path), :notifications_enabled?
+    end
+  end
+
+  def test_notifications_enabled_finds_the_entry_in_any_layout_section
+    %w[left center right].each do |side|
+      shell_json = { "bar" => { "layout" => { side => [
+        { "id" => "owlook.status", "notificationsEnabled" => false }
+      ] } } }
+
+      with_shell_json(shell_json) do |path|
+        refute_predicate Owlook::WidgetSettings.load(path: path), :notifications_enabled?,
+                         "expected to find the entry under #{side}"
+      end
+    end
+  end
+
+  def test_notifications_enabled_finds_the_entry_in_top_level_plugins
+    shell_json = { "plugins" => [{ "id" => "owlook.status", "notificationsEnabled" => false }] }
+
+    with_shell_json(shell_json) do |path|
+      refute_predicate Owlook::WidgetSettings.load(path: path), :notifications_enabled?
+    end
+  end
+
+  def test_notifications_enabled_ignores_a_different_widgets_entry
+    shell_json = { "bar" => { "layout" => { "right" => [
+      { "id" => "omarchy.clock", "notificationsEnabled" => false }
+    ] } } }
+
+    with_shell_json(shell_json) do |path|
+      assert_predicate Owlook::WidgetSettings.load(path: path), :notifications_enabled?
+    end
+  end
+
+  def test_load_defaults_notifications_enabled_when_the_file_does_not_exist
+    assert_predicate Owlook::WidgetSettings.load(path: "/nonexistent/shell.json"), :notifications_enabled?
+  end
+
+  def test_load_defaults_notifications_enabled_when_the_file_is_not_valid_json
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "shell.json")
+      File.write(path, "{not valid json")
+
+      assert_predicate Owlook::WidgetSettings.load(path: path), :notifications_enabled?
+    end
+  end
+
   private
 
   def with_shell_json(hash)

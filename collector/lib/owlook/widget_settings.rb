@@ -31,6 +31,17 @@ module Owlook
       !!@entry["allBranches"]
     end
 
+    # ON by default — opposite of all_branches? on purpose. Every existing
+    # user with no "notificationsEnabled" key written yet (which is
+    # everyone, the very first time this ships) has to keep getting
+    # notified exactly like before this toggle existed; only an explicit
+    # `false` turns it off. `!= false` rather than `fetch(..., true)` so a
+    # missing key, a JSON `true`, or any other truthy leftover all read as
+    # enabled the same way.
+    def notifications_enabled?
+      @entry["notificationsEnabled"] != false
+    end
+
     private
 
     # Mirrors shell.qml's own updateEntryInline: the entry can live in any

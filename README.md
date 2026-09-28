@@ -48,7 +48,9 @@ the plugin takes it with it.
   the same SSH access `kamal deploy` already uses. No code added to the
   target app, no new credentials.
 - **Notifications** — desktop alerts on real state transitions only,
-  never a repeat poll.
+  never a repeat poll. A **Notifications** setting turns them off
+  entirely if you'd rather just check the panel — the panel itself
+  keeps showing real status either way.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history. Not built yet:
 Sidekiq (behind the same source interface as Solid Queue), and any Git

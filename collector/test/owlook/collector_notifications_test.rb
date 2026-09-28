@@ -236,4 +236,92 @@ class Owlook::CollectorNotificationsTest < Minitest::Test
       end
     end
   end
+
+  # notify_on_transition is the single choke point every real transition
+  # already passes through (CI, deploy, and queue alike) — one guard
+  # there, proven here for the CI case, covers all three without needing
+  # a separate settings_loader check duplicated at each of their own
+  # record_and_notify call sites.
+  def test_poll_ci_once_does_not_notify_when_notifications_are_disabled
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        routes = {
+          %w[acme widgets main] => { head_sha: "aaa", status: "completed", conclusion: "success",
+                                     updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        }
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: FakeGithubSource.new(routes),
+          settings_loader: -> { FakeSettings.new(notifications_enabled: false) },
+          notifier: notifier
+        )
+
+        collector.poll_ci_once
+
+        routes[%w[acme widgets main]] = { head_sha: "bbb", status: "completed", conclusion: "failure",
+                                          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        collector.poll_ci_once
+
+        assert_empty notifier.sent, "a real transition happened, but the toggle says stay quiet"
+      end
+    end
+  end
+
+  def test_poll_ci_once_notifies_on_recovery_even_when_disabled_is_explicitly_re_enabled
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        routes = {
+          %w[acme widgets main] => { head_sha: "aaa", status: "completed", conclusion: "success",
+                                     updated_at: "2026-08-26T12:00:00Z", actor: "rafael" }
+        }
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: FakeGithubSource.new(routes),
+          settings_loader: -> { FakeSettings.new(notifications_enabled: true) },
+          notifier: notifier
+        )
+
+        collector.poll_ci_once
+
+        routes[%w[acme widgets main]] = { head_sha: "bbb", status: "completed", conclusion: "failure",
+                                          updated_at: "2026-08-26T12:05:00Z", actor: "rafael" }
+        collector.poll_ci_once
+
+        assert_equal 1, notifier.sent.size, "explicitly enabled should behave exactly like the default"
+      end
+    end
+  end
+
+  def test_poll_queues_once_does_not_notify_when_notifications_are_disabled
+    with_project(remote: "https://github.com/acme/widgets.git", branch: "main") do |project_path|
+      Dir.mktmpdir do |state_dir|
+        notifier = FakeNotifier.new
+        counts = { ready: 0, failed: 0 }
+        collector = Owlook::Collector.new(
+          config_loader: -> { Owlook::Config.new({ "projects" => [project_path] }) },
+          store: Owlook::Store.new,
+          writer: Owlook::StateWriter.new(File.join(state_dir, "state.json")),
+          github_source: FakeGithubSource.new({}),
+          kamal_source: FakeKamalSource.new(project_path => ["default"]),
+          queue_source: FakeQueueSource.new(["default"] => counts),
+          deploy_source: FakeDeploySource.new({}),
+          settings_loader: -> { FakeSettings.new(notifications_enabled: false) },
+          notifier: notifier
+        )
+
+        collector.poll_queues_once
+
+        counts[:failed] = 4
+        collector.poll_queues_once
+
+        assert_empty notifier.sent, "a real queue transition happened, but the toggle says stay quiet"
+      end
+    end
+  end
 end
