@@ -7,6 +7,12 @@ follows [SemVer](https://semver.org/) — under `0.x`, a MINOR bump signals
 
 ## [Unreleased]
 
+### Added
+
+- A **Notifications** toggle in the settings panel — same UX as the
+  existing "All branches" toggle. Off skips desktop alerts entirely;
+  the panel itself still shows the real state either way.
+
 ## [0.1.5] - 2026-09-11
 
 ### Fixed

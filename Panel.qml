@@ -64,6 +64,22 @@ Panel {
       root.barWidgetRoot.restartCollectorCycleNow()
   }
 
+  // Same persistence mechanism as toggleAllBranchesSetting — see
+  // Owlook::WidgetSettings#notifications_enabled?, which reads the
+  // identical entry. No restartCollectorCycleNow() here on purpose: this
+  // doesn't change what or how the collector polls, only whether a real
+  // transition calls Notifier — the very next cycle (<=30s) already
+  // reads it fresh, no reason to interrupt one in flight for it.
+  function toggleNotificationsSetting() {
+    var entry = { id: root.moduleName }
+    for (var existing in root.settings) if (existing !== "id") entry[existing] = root.settings[existing]
+    entry.notificationsEnabled = !root.setting("notificationsEnabled", true)
+
+    root.settings = entry
+    if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
+      root.bar.shell.updateEntryInline(root.moduleName, entry)
+  }
+
   readonly property color urgent: bar ? bar.urgent : Color.urgent
   readonly property string runtimeDir: Quickshell.env("XDG_RUNTIME_DIR") || "/tmp"
   readonly property string statePath: runtimeDir + "/owlook.json"
@@ -630,6 +646,17 @@ Panel {
                 accent: Color.accent
                 fontFamily: Style.font.family
                 onClicked: root.toggleAllBranchesSetting()
+              }
+
+              Toggle {
+                width: parent.width
+                label: "Notifications"
+                description: "Desktop alerts when a tracked branch, deploy, or queue changes state. Off skips the alert only — the panel itself still shows the real state."
+                checked: root.setting("notificationsEnabled", true)
+                foreground: root.barForeground
+                accent: Color.accent
+                fontFamily: Style.font.family
+                onClicked: root.toggleNotificationsSetting()
               }
             }
 
